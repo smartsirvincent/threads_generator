@@ -7,6 +7,7 @@ import { writeWorkbookBuffer } from '@/lib/excel-writer.js';
 import { getPostType } from '@/lib/schemas.js';
 import { generateBatch as kieGenerateBatch } from '@/lib/kie-image.js';
 import { uploadToCloudinary, uploadRawToCloudinary, hasCloudinary } from '@/lib/cloudinary.js';
+import { normalizeInput } from '@/lib/normalize.js';
 
 export const runtime = 'nodejs';
 // Hobby plan cap = 300s. Pro/Enterprise 可拉到 800s。
@@ -17,7 +18,8 @@ const STORE = globalThis.__threadsGenStore ?? new Map();
 globalThis.__threadsGenStore = STORE;
 
 export async function POST(req) {
-  const { input, themes } = await req.json();
+  const { input: rawInput, themes } = await req.json();
+  const input = normalizeInput(rawInput);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -103,13 +105,16 @@ export async function POST(req) {
             const theme = themes.find((t) => t.name === themeName);
             if (theme?.type !== 'product_with_image') continue;
             posts.forEach((post, pIdx) => {
-              const prompt = buildImagePrompt(post, input);
+              // 用 post.product_index 對應到具體 SKU 的圖片當參考
+              const pi = clampProductIndex(post.product_index, input.products.length);
+              const product = input.products[pi];
+              const prompt = buildImagePrompt(post, input, product);
               if (!prompt) return;
               imageTasks.push({
                 themeName,
                 postIndex: pIdx,
                 prompt,
-                refs: pickRefs(input.product_images),
+                refs: pickRefs(product?.images && product.images.length > 0 ? product.images : input.product_images),
                 size: '1:1',
               });
             });
@@ -245,14 +250,14 @@ export async function POST(req) {
   });
 }
 
-function buildImagePrompt(post, input) {
+function buildImagePrompt(post, input, product) {
   const keywords = post['Prompt核心關鍵字'] || post['Prompt 核心關鍵字'] || '';
   const main = post['主標題'] || post['首句Hook'] || '';
   const sub = post['副標題'] || post['切入點'] || '';
   const persona = input.brand_persona || '';
   if (!keywords && !main) return null;
-  // 給 GPT-4o image 的英文 prompt — 用關鍵字主導,主標題副標題當補充
   return [
+    product?.name && `SKU: ${product.name}`,
     keywords,
     main && `Main text: "${main}"`,
     sub && `Sub: "${sub}"`,
@@ -264,7 +269,12 @@ function buildImagePrompt(post, input) {
 function pickRefs(images) {
   if (!Array.isArray(images) || images.length === 0) return [];
   const shuffled = [...images].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 2); // 最多 2 張當參考
+  return shuffled.slice(0, 2);
+}
+
+function clampProductIndex(idx, total) {
+  if (!Number.isInteger(idx) || idx < 0 || idx >= total) return 0;
+  return idx;
 }
 
 function sanitizeFolder(s) {
