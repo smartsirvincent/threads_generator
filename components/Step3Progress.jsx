@@ -2,113 +2,179 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+const IMAGE_CONCURRENCY = 4;
+
 export default function Step3Progress({ input, themes, onDone, onBack }) {
-  const [events, setEvents] = useState([]);
+  const [themeProgress, setThemeProgress] = useState(
+    () => themes.map((t) => ({ name: t.name, type: t.type, target: t.monthly_count || 30, done: false, count: 0, error: null }))
+  );
+  const [textXlsxUrl, setTextXlsxUrl] = useState(null);
+  const [phase, setPhase] = useState('text'); // 'text' | 'images' | 'done' | 'error'
   const [error, setError] = useState('');
-  const [aborted, setAborted] = useState(false);
-  const abortRef = useRef(null);
+  const [imageState, setImageState] = useState({ total: 0, done: 0, images: [] });
   const startedRef = useRef(false);
+  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
-    (async () => {
-      try {
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ input, themes }),
-          signal: ctrl.signal,
-        });
-        if (!res.ok || !res.body) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `HTTP ${res.status}`);
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop() || '';
-          for (const line of lines) {
-            const t = line.trim();
-            if (!t) continue;
-            try {
-              const ev = JSON.parse(t);
-              setEvents((arr) => [...arr, ev]);
-              if (ev.type === 'done') {
-                onDone(ev);
-                return;
-              }
-              if (ev.type === 'error') {
-                throw new Error(ev.message);
-              }
-            } catch (e) {
-              if (e.message.startsWith('Unexpected')) continue;
-              throw e;
-            }
-          }
-        }
-      } catch (e) {
-        if (e.name === 'AbortError') {
-          setAborted(true);
-        } else {
-          setError(e.message);
-        }
-      }
-    })();
-
-    // 注意:這裡不能在 cleanup 裡 abort,否則 React Strict Mode 的雙跑會把第一次的 in-flight request 砍掉
-    // 用戶要中止請按「取消」按鈕
+    run().catch((e) => {
+      setError(e.message);
+      setPhase('error');
+    });
+    return () => {
+      // 注意:不要 cancel ref,否則 strict mode 雙跑會打架
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function cancel() {
-    abortRef.current?.abort();
+    cancelRef.current = true;
+    setError('使用者已取消');
+    setPhase('error');
   }
 
-  // 算進度
-  const themeStates = themes.map((t) => {
-    const themeEvents = events.filter((e) => e.theme === t.name);
-    const lastBatch = themeEvents.filter((e) => e.type === 'batch').slice(-1)[0];
-    const doneEv = themeEvents.find((e) => e.type === 'theme_done');
-    const failures = themeEvents.filter((e) => e.type === 'batch_failed');
-    return {
-      theme: t,
-      done: !!doneEv,
-      generated: doneEv ? doneEv.count : (lastBatch?.posts || 0),
-      target: t.monthly_count || 30,
-      currentBatch: lastBatch ? `${lastBatch.batch}/${lastBatch.batches}` : '-',
-      failures: failures.length,
-    };
-  });
+  async function run() {
+    // ===== Phase 1: 文字 (每個主題序列跑) =====
+    const postsByTheme = {};
+    for (let i = 0; i < themes.length; i++) {
+      if (cancelRef.current) return;
+      const theme = themes[i];
+      setThemeProgress((arr) => arr.map((s, idx) => idx === i ? { ...s, active: true } : s));
 
-  const currentIndex = themeStates.findIndex((s) => !s.done);
-  const totalGenerated = themeStates.reduce((s, x) => s + x.generated, 0);
-  const totalTarget = themeStates.reduce((s, x) => s + x.target, 0);
-  const recentSamples = events.filter((e) => e.type === 'sample').slice(-3);
+      try {
+        const res = await fetch('/api/gen-text', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ input, theme }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        postsByTheme[theme.name] = data.posts;
+        setThemeProgress((arr) => arr.map((s, idx) =>
+          idx === i ? { ...s, done: true, active: false, count: data.posts.length } : s
+        ));
+      } catch (e) {
+        setThemeProgress((arr) => arr.map((s, idx) =>
+          idx === i ? { ...s, error: e.message, active: false } : s
+        ));
+      }
+    }
 
-  // 圖片進度
-  const imageStartEv = events.find((e) => e.type === 'images_start');
-  const imageProgressEvs = events.filter((e) => e.type === 'image_progress');
-  const lastImageProgress = imageProgressEvs[imageProgressEvs.length - 1];
-  const imagesDone = !!events.find((e) => e.type === 'images_done');
-  const recentImages = events.filter((e) => e.type === 'image_uploaded').slice(-4);
-  const imageWarnings = events.filter((e) => e.type === 'images_warning' || e.type === 'upload_warning');
+    if (cancelRef.current) return;
+
+    // ===== 早期 finalize: 文字版 xlsx =====
+    setPhase('images');
+    try {
+      const r = await fetch('/api/finalize-xlsx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input, themes, postsByTheme }),
+      });
+      const d = await r.json();
+      if (r.ok && (d.download_url || d.id)) {
+        setTextXlsxUrl(d.download_url || `/api/download/${d.id}`);
+      }
+    } catch (_) {}
+
+    // ===== Phase 2: 圖片 (並行) =====
+    const wantImages = input.generate_images !== false && !input.dry_run;
+    const imageTasks = wantImages ? collectImageTasks(themes, postsByTheme, input) : [];
+
+    if (imageTasks.length === 0) {
+      // 沒圖,直接結束
+      const res = await fetch('/api/finalize-xlsx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input, themes, postsByTheme }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      onDone({
+        id: d.id,
+        download_url: d.download_url,
+        file_size: d.file_size,
+        themes_summary: buildSummary(themes, postsByTheme),
+      });
+      setPhase('done');
+      return;
+    }
+
+    setImageState({ total: imageTasks.length, done: 0, images: [] });
+
+    // 並行 pool
+    let cursor = 0;
+    async function worker() {
+      while (true) {
+        if (cancelRef.current) return;
+        const idx = cursor++;
+        if (idx >= imageTasks.length) return;
+        const t = imageTasks[idx];
+        try {
+          const res = await fetch('/api/gen-image', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              prompt: t.prompt,
+              referenceImages: t.refs,
+              size: '1:1',
+              brand: input.brand,
+              themeName: t.themeName,
+            }),
+          });
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+          // 寫回 post.AI圖
+          const post = postsByTheme[t.themeName]?.[t.postIndex];
+          if (post) post.AI圖 = d.url;
+          setImageState((s) => ({
+            ...s,
+            done: s.done + 1,
+            images: [...s.images, { themeName: t.themeName, postIndex: t.postIndex, url: d.url }],
+          }));
+        } catch (e) {
+          setImageState((s) => ({
+            ...s,
+            done: s.done + 1,
+            images: [...s.images, { themeName: t.themeName, postIndex: t.postIndex, error: e.message }],
+          }));
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, imageTasks.length) }, worker));
+
+    if (cancelRef.current) return;
+
+    // ===== 最終 finalize: 含圖 xlsx =====
+    const finalRes = await fetch('/api/finalize-xlsx', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ input, themes, postsByTheme }),
+    });
+    const finalData = await finalRes.json();
+    if (!finalRes.ok) throw new Error(finalData.error || `HTTP ${finalRes.status}`);
+
+    onDone({
+      id: finalData.id,
+      download_url: finalData.download_url,
+      file_size: finalData.file_size,
+      themes_summary: buildSummary(themes, postsByTheme),
+    });
+    setPhase('done');
+  }
+
+  const textDone = themeProgress.filter((s) => s.done).length;
+  const totalText = themeProgress.reduce((s, x) => s + x.count, 0);
+  const totalTarget = themeProgress.reduce((s, x) => s + x.target, 0);
 
   return (
     <div className="space-y-5">
+      {/* ===== 文字進度 ===== */}
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-stone-900">
-            生成中… {totalGenerated}/{totalTarget} 篇
+            📝 文字生成 {totalText}/{totalTarget} 篇 · {textDone}/{themes.length} 主題
+            {phase !== 'text' && ' ✓'}
           </h2>
           <button onClick={cancel} className="text-sm text-stone-500 hover:text-red-600">
             取消
@@ -118,147 +184,180 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         <div className="h-2 overflow-hidden rounded-full bg-stone-100">
           <div
             className="h-full bg-brand-500 transition-all"
-            style={{
-              width: `${totalTarget > 0 ? (totalGenerated / totalTarget) * 100 : 0}%`,
-            }}
+            style={{ width: `${totalTarget > 0 ? (totalText / totalTarget) * 100 : 0}%` }}
           />
         </div>
 
-        <ul className="space-y-2">
-          {themeStates.map((s, i) => (
+        <ul className="space-y-1.5">
+          {themeProgress.map((s, i) => (
             <li
               key={i}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
-                i === currentIndex ? 'bg-brand-50' : ''
+              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
+                s.active ? 'bg-brand-50' : ''
               }`}
             >
               <span
                 className={`flex size-6 items-center justify-center rounded-full text-xs ${
                   s.done
                     ? 'bg-brand-500 text-white'
-                    : i === currentIndex
+                    : s.active
                     ? 'animate-pulse bg-stone-900 text-white'
                     : 'bg-stone-200 text-stone-500'
                 }`}
               >
                 {s.done ? '✓' : i + 1}
               </span>
-              <span className="flex-1 text-sm font-medium text-stone-800">
-                {s.theme.name}
-              </span>
+              <span className="flex-1 font-medium text-stone-800">{s.name}</span>
               <span className="text-xs text-stone-500">
-                {s.generated}/{s.target}
-                {s.failures > 0 && (
-                  <span className="ml-2 text-red-600">⚠ {s.failures} 批失敗</span>
-                )}
-                {i === currentIndex && !s.done && (
-                  <span className="ml-2 text-stone-400">batch {s.currentBatch}</span>
-                )}
+                {s.count}/{s.target}
+                {s.error && <span className="ml-2 text-red-600">⚠ {s.error.slice(0, 40)}</span>}
               </span>
             </li>
           ))}
         </ul>
 
-        {imageStartEv && (
-          <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-purple-900">
-                🎨 圖片生成 (KIE GPT Image 2 → Cloudinary)
+        {textXlsxUrl && phase === 'images' && (
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-green-800">
+                ✓ 文字版 xlsx 已可下載（圖片還在生成中）
               </span>
-              <span className="text-xs text-purple-700">
-                {lastImageProgress?.done || 0} / {imageStartEv.total}
-                {imagesDone && ' ✓'}
-              </span>
+              <a
+                href={textXlsxUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
+              >
+                先下載文字版
+              </a>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white">
-              <div
-                className="h-full bg-purple-500 transition-all"
-                style={{
-                  width: `${
-                    imageStartEv.total > 0
-                      ? ((lastImageProgress?.done || 0) / imageStartEv.total) * 100
-                      : 0
-                  }%`,
-                }}
-              />
-            </div>
-            {imageWarnings.length > 0 && (
-              <ul className="mt-2 space-y-0.5 text-xs text-amber-700">
-                {imageWarnings.slice(-2).map((w, i) => (
-                  <li key={i}>⚠ {w.message || w.error}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-            ❌ {error}
-            <button
-              onClick={onBack}
-              className="ml-3 underline"
-            >
-              返回主題編輯
-            </button>
-          </div>
-        )}
-
-        {aborted && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
-            已取消生成。
-            <button onClick={onBack} className="ml-3 underline">
-              返回主題編輯
-            </button>
           </div>
         )}
       </div>
 
-      {recentSamples.length > 0 && (
-        <div className="card">
-          <h3 className="mb-3 text-sm font-medium text-stone-600">最近產出樣本</h3>
-          <div className="space-y-3">
-            {recentSamples.map((s, i) => (
-              <div key={i} className="rounded-lg border border-stone-200 bg-stone-50 p-3">
-                <div className="mb-1 flex items-center justify-between text-xs text-stone-500">
-                  <span className="font-medium text-stone-700">{s.theme}</span>
-                  <span>#{s.index}</span>
-                </div>
-                <pre className="whitespace-pre-wrap font-sans text-sm text-stone-800">
-                  {s.preview}
-                </pre>
-              </div>
-            ))}
+      {/* ===== 圖片進度 ===== */}
+      {imageState.total > 0 && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-stone-900">
+              🎨 圖片生成 {imageState.done}/{imageState.total}
+              {phase === 'done' && ' ✓'}
+            </h2>
+            <span className="text-xs text-stone-500">並行 {IMAGE_CONCURRENCY} 個</span>
           </div>
+
+          <div className="h-2 overflow-hidden rounded-full bg-stone-100">
+            <div
+              className="h-full bg-purple-500 transition-all"
+              style={{ width: `${(imageState.done / imageState.total) * 100}%` }}
+            />
+          </div>
+
+          {imageState.images.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+              {imageState.images.map((img, i) => (
+                <div key={i} className="relative overflow-hidden rounded-lg border border-stone-200">
+                  {img.error ? (
+                    <div className="flex aspect-square items-center justify-center bg-red-50 p-2 text-center text-[10px] text-red-600">
+                      ⚠ {img.error.slice(0, 30)}
+                    </div>
+                  ) : (
+                    <a href={img.url} target="_blank" rel="noreferrer" className="block">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.url}
+                        alt={`${img.themeName} #${img.postIndex + 1}`}
+                        className="aspect-square w-full object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[10px] text-white">
+                    {img.themeName} #{img.postIndex + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {recentImages.length > 0 && (
-        <div className="card">
-          <h3 className="mb-3 text-sm font-medium text-stone-600">最近產出圖片</h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {recentImages.map((img, i) => (
-              <a
-                key={i}
-                href={img.url}
-                target="_blank"
-                rel="noreferrer"
-                className="group block overflow-hidden rounded-lg border border-stone-200"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.url}
-                  alt={`${img.theme} #${img.index}`}
-                  className="aspect-square w-full object-cover transition group-hover:scale-105"
-                />
-                <div className="border-t border-stone-200 bg-white px-2 py-1 text-[10px] text-stone-500">
-                  {img.theme} #{img.index}
-                </div>
-              </a>
-            ))}
-          </div>
+      {error && (
+        <div className="card border-red-200 bg-red-50">
+          <p className="text-sm text-red-700">❌ {error}</p>
+          <button onClick={onBack} className="mt-2 text-xs text-red-600 underline">
+            返回主題編輯
+          </button>
         </div>
       )}
     </div>
   );
 }
+
+function collectImageTasks(themes, postsByTheme, input) {
+  const tasks = [];
+  for (const theme of themes) {
+    if (theme.type !== 'product_with_image') continue;
+    const posts = postsByTheme[theme.name] || [];
+    posts.forEach((post, pIdx) => {
+      const pi = Number.isInteger(post.product_index) && post.product_index >= 0
+        && post.product_index < input.products.length
+          ? post.product_index : 0;
+      const product = input.products[pi];
+      const prompt = buildImagePrompt(post, input, product);
+      if (!prompt) return;
+      const refs = pickRefs(product?.images && product.images.length > 0 ? product.images : []);
+      tasks.push({
+        themeName: theme.name,
+        postIndex: pIdx,
+        prompt,
+        refs,
+      });
+    });
+  }
+  return tasks;
+}
+
+function buildImagePrompt(post, input, product) {
+  const keywords = post['Prompt核心關鍵字'] || post['Prompt 核心關鍵字'] || '';
+  const main = post['主標題'] || post['首句Hook'] || '';
+  const sub = post['副標題'] || post['切入點'] || '';
+  const persona = input.brand_persona || '';
+  if (!keywords && !main) return null;
+  return [
+    product?.name && `SKU: ${product.name}`,
+    keywords,
+    main && `Main text: "${main}"`,
+    sub && `Sub: "${sub}"`,
+    `Brand vibe: ${input.brand}, ${persona.slice(0, 60)}`,
+    'Photorealistic, social media post style, vibrant lighting',
+  ].filter(Boolean).join('. ');
+}
+
+function pickRefs(images) {
+  if (!Array.isArray(images) || images.length === 0) return [];
+  const shuffled = [...images].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 2);
+}
+
+function buildSummary(themes, postsByTheme) {
+  return themes.map((t) => ({
+    name: t.name,
+    type: t.type,
+    type_label: TYPE_LABELS[t.type] || t.type,
+    count: (postsByTheme[t.name] || []).length,
+    target: t.monthly_count || 30,
+    failures: 0,
+  }));
+}
+
+const TYPE_LABELS = {
+  product_with_image: '產品介紹（含圖）',
+  product_with_url: '產品介紹（帶網址）',
+  opinion_short: '觀點短文',
+  brand_quote: '品牌語錄',
+  tutorial: '教學小知識',
+  quiz: '心理測驗',
+  engagement: '高互動引戰',
+  persona_narrative: '情境角色文',
+};
