@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/generate/route.js": {
+      "maxDuration": 800
+    },
+    "app/api/recommend/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/download/[id]/route.js": {
+      "maxDuration": 30
+    }
+  }
+}

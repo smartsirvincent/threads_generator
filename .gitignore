@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# secrets (never commit)
+.env
+.env.local
+.env.*.local
+
+# build output
+.next/
+out/
+*.tsbuildinfo
+
+# generated xlsx
+output/*.xlsx
+output/_smoke-*.png
+
+# vercel
+.vercel
