@@ -9,7 +9,8 @@ import { generateBatch as kieGenerateBatch } from '@/lib/kie-image.js';
 import { uploadToCloudinary, uploadRawToCloudinary, hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600; // 最多 10 分鐘,生成可能久
+// Hobby plan cap = 300s. Pro/Enterprise 可拉到 800s。
+export const maxDuration = 300;
 
 // 暫存 xlsx 用的 in-memory map(serverless 不可靠,但本機/單實例 OK)
 const STORE = globalThis.__threadsGenStore ?? new Map();
