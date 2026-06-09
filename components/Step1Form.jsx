@@ -266,21 +266,9 @@ export default function Step1Form({ input, setInput, onLoadSample, onSubmit }) {
             {input.dry_run ? '✓ 不會花費 API credit' : '會呼叫 Claude API'}
           </span>
         </div>
-        <div className="flex items-center justify-between rounded-lg bg-stone-50 px-4 py-3">
-          <label className="inline-flex items-center gap-2 text-sm text-stone-700">
-            <input
-              type="checkbox"
-              checked={input.generate_images !== false}
-              disabled={input.dry_run}
-              onChange={(e) => update('generate_images', e.target.checked)}
-              className="size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500 disabled:opacity-50"
-            />
-            <span>生成 AI 圖片（KIE GPT Image 2 → Cloudinary）</span>
-          </label>
-          <span className="text-xs text-stone-500">
-            僅對「產品介紹（含圖）」主題生效
-          </span>
-        </div>
+        <p className="px-4 text-xs text-stone-500">
+          💡 文字版輸出後想補 AI 圖片，請到 <a href="/images" className="text-brand-600 underline">「補圖工坊」</a> 上傳 xlsx。
+        </p>
       </div>
 
       {error && (

@@ -11,18 +11,14 @@ export default function RootLayout({ children }) {
       <body className="min-h-screen">
         <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:py-12">
           <header className="mb-10 flex items-center justify-between">
-            <h1 className="flex items-center gap-2 text-2xl font-semibold text-stone-900">
+            <a href="/" className="flex items-center gap-2 text-2xl font-semibold text-stone-900 hover:opacity-80">
               <span className="inline-block size-8 rounded-lg bg-brand-500" />
               Threads 貼文產生器
-            </h1>
-            <a
-              href="https://github.com/anthropics/claude-code"
-              className="text-sm text-stone-500 hover:text-stone-700"
-              target="_blank"
-              rel="noreferrer"
-            >
-              powered by Claude
             </a>
+            <nav className="flex items-center gap-4 text-sm">
+              <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文字</a>
+              <a href="/images" className="text-stone-500 hover:text-stone-900">🎨 補圖</a>
+            </nav>
           </header>
           {children}
         </div>
