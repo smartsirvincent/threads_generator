@@ -1,7 +1,7 @@
 // Chunked: 一次只生一個 batch (≤8 篇),client 控制迴圈
 // 每個 call < 20s,遠低於 Vercel Hobby 60s 上限
 import { NextResponse } from 'next/server';
-import { generateOneBatch, generateOneBatchDryRun } from '@/lib/generate-posts.js';
+import { generateOneBatch, generateOneBatchDryRun, batchSizeForType } from '@/lib/generate-posts.js';
 import { normalizeInput } from '@/lib/normalize.js';
 
 export const runtime = 'nodejs';
@@ -16,7 +16,9 @@ export async function POST(req) {
       return NextResponse.json({ error: 'theme.name + theme.type required' }, { status: 400 });
     }
 
-    const batchCount = Math.min(Math.max(1, count || 8), 8);
+    // 依 theme.type 動態 cap 每批量 (product_with_image 17 欄太重,壓到 4)
+    const typeCap = batchSizeForType(theme.type);
+    const batchCount = Math.min(Math.max(1, count || typeCap), typeCap);
 
     const result = input.dry_run
       ? generateOneBatchDryRun({ theme, input, count: batchCount, startIndex })
