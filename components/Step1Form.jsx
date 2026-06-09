@@ -29,7 +29,16 @@ function buildPayload(input) {
   };
 }
 
-export default function Step1Form({ input, setInput, onLoadSample, onSubmit }) {
+export default function Step1Form({
+  input,
+  setInput,
+  onLoadSample,
+  onSubmit,
+  recommendEndpoint = '/api/recommend',
+  submitLabel = '下一步：AI 推薦主題 →',
+  loadingLabel = '🔮 AI 推薦主題中…',
+  showImageHint = true,
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -86,7 +95,7 @@ export default function Step1Form({ input, setInput, onLoadSample, onSubmit }) {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/recommend', {
+      const res = await fetch(recommendEndpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(buildPayload(input)),
@@ -266,9 +275,11 @@ export default function Step1Form({ input, setInput, onLoadSample, onSubmit }) {
             {input.dry_run ? '✓ 不會花費 API credit' : '會呼叫 Claude API'}
           </span>
         </div>
-        <p className="px-4 text-xs text-stone-500">
-          💡 文字版輸出後想補 AI 圖片，請到 <a href="/images" className="text-brand-600 underline">「補圖工坊」</a> 上傳 xlsx。
-        </p>
+        {showImageHint && (
+          <p className="px-4 text-xs text-stone-500">
+            💡 文字版輸出後想補 AI 圖片，請到 <a href="/images" className="text-brand-600 underline">「補圖工坊」</a> 上傳 xlsx，或直接從首頁進「🖼️ 圖片規劃」獨立流程。
+          </p>
+        )}
       </div>
 
       {error && (
@@ -279,7 +290,7 @@ export default function Step1Form({ input, setInput, onLoadSample, onSubmit }) {
 
       <div className="flex justify-end">
         <button type="submit" disabled={loading} className="btn-primary">
-          {loading ? '🔮 AI 推薦主題中…' : '下一步：AI 推薦主題 →'}
+          {loading ? loadingLabel : submitLabel}
         </button>
       </div>
     </form>

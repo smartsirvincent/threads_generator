@@ -15,8 +15,9 @@ export default function RootLayout({ children }) {
               <span className="inline-block size-8 rounded-lg bg-brand-500" />
               Threads 貼文產生器
             </a>
-            <nav className="flex items-center gap-4 text-sm">
+            <nav className="flex items-center gap-3 text-sm sm:gap-4">
               <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文字</a>
+              <a href="/image-plan" className="text-stone-500 hover:text-stone-900">🖼️ 圖片</a>
               <a href="/images" className="text-stone-500 hover:text-stone-900">🎨 補圖</a>
             </nav>
           </header>
