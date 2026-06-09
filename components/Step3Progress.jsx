@@ -3,6 +3,42 @@
 import { useEffect, useRef, useState } from 'react';
 
 const IMAGE_CONCURRENCY = 4;
+const TEXT_BATCH_SIZE = 8;
+const MAX_RETRIES = 3;
+
+/**
+ * 安全 fetch JSON:
+ * - 非 JSON 回應視為 transient error,可重試
+ * - 5xx / 4xx 也丟錯,給上層決定要不要重試
+ */
+async function safeFetchJSON(url, body, { retries = MAX_RETRIES, label = '' } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`${label} 回應不是 JSON (HTTP ${res.status}): ${text.slice(0, 80)}`);
+      }
+      if (!res.ok) throw new Error(data.error || `${label} HTTP ${res.status}`);
+      return data;
+    } catch (e) {
+      lastErr = e;
+      // exponential backoff: 1s, 2s, 4s
+      if (attempt < retries - 1) {
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 export default function Step3Progress({ input, themes, onDone, onBack }) {
   const [themeProgress, setThemeProgress] = useState(
@@ -35,30 +71,46 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
   }
 
   async function run() {
-    // ===== Phase 1: 文字 (每個主題序列跑) =====
+    // ===== Phase 1: 文字 (每個主題分批 chunked,每 call ≤ 8 篇) =====
     const postsByTheme = {};
     for (let i = 0; i < themes.length; i++) {
       if (cancelRef.current) return;
       const theme = themes[i];
+      const target = theme.monthly_count || 30;
       setThemeProgress((arr) => arr.map((s, idx) => idx === i ? { ...s, active: true } : s));
 
-      try {
-        const res = await fetch('/api/gen-text', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ input, theme }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        postsByTheme[theme.name] = data.posts;
-        setThemeProgress((arr) => arr.map((s, idx) =>
-          idx === i ? { ...s, done: true, active: false, count: data.posts.length } : s
-        ));
-      } catch (e) {
-        setThemeProgress((arr) => arr.map((s, idx) =>
-          idx === i ? { ...s, error: e.message, active: false } : s
-        ));
+      const accumulated = [];
+      const previousTitles = [];
+      let themeError = null;
+
+      while (accumulated.length < target) {
+        if (cancelRef.current) return;
+        const remaining = target - accumulated.length;
+        const batchCount = Math.min(TEXT_BATCH_SIZE, remaining);
+        try {
+          const data = await safeFetchJSON('/api/gen-text', {
+            input,
+            theme,
+            count: batchCount,
+            previousTitles,
+            startIndex: accumulated.length,
+          }, { label: `gen-text(${theme.name})`, retries: MAX_RETRIES });
+
+          accumulated.push(...(data.posts || []));
+          previousTitles.push(...(data.titles || []));
+          setThemeProgress((arr) => arr.map((s, idx) =>
+            idx === i ? { ...s, count: accumulated.length } : s
+          ));
+        } catch (e) {
+          themeError = e.message;
+          break;
+        }
       }
+
+      postsByTheme[theme.name] = accumulated;
+      setThemeProgress((arr) => arr.map((s, idx) =>
+        idx === i ? { ...s, done: !themeError, active: false, count: accumulated.length, error: themeError } : s
+      ));
     }
 
     if (cancelRef.current) return;
@@ -66,13 +118,10 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
     // ===== 早期 finalize: 文字版 xlsx =====
     setPhase('images');
     try {
-      const r = await fetch('/api/finalize-xlsx', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ input, themes, postsByTheme }),
-      });
-      const d = await r.json();
-      if (r.ok && (d.download_url || d.id)) {
+      const d = await safeFetchJSON('/api/finalize-xlsx',
+        { input, themes, postsByTheme },
+        { label: 'finalize-text', retries: 2 });
+      if (d.download_url || d.id) {
         setTextXlsxUrl(d.download_url || `/api/download/${d.id}`);
       }
     } catch (_) {}
@@ -83,13 +132,9 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
 
     if (imageTasks.length === 0) {
       // 沒圖,直接結束
-      const res = await fetch('/api/finalize-xlsx', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ input, themes, postsByTheme }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      const d = await safeFetchJSON('/api/finalize-xlsx',
+        { input, themes, postsByTheme },
+        { label: 'finalize-final', retries: 2 });
       onDone({
         id: d.id,
         download_url: d.download_url,
@@ -111,20 +156,13 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         if (idx >= imageTasks.length) return;
         const t = imageTasks[idx];
         try {
-          const res = await fetch('/api/gen-image', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              prompt: t.prompt,
-              referenceImages: t.refs,
-              size: '1:1',
-              brand: input.brand,
-              themeName: t.themeName,
-            }),
-          });
-          const d = await res.json();
-          if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-          // 寫回 post.AI圖
+          const d = await safeFetchJSON('/api/gen-image', {
+            prompt: t.prompt,
+            referenceImages: t.refs,
+            size: '1:1',
+            brand: input.brand,
+            themeName: t.themeName,
+          }, { label: 'gen-image', retries: 2 });
           const post = postsByTheme[t.themeName]?.[t.postIndex];
           if (post) post.AI圖 = d.url;
           setImageState((s) => ({
@@ -146,13 +184,9 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
     if (cancelRef.current) return;
 
     // ===== 最終 finalize: 含圖 xlsx =====
-    const finalRes = await fetch('/api/finalize-xlsx', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ input, themes, postsByTheme }),
-    });
-    const finalData = await finalRes.json();
-    if (!finalRes.ok) throw new Error(finalData.error || `HTTP ${finalRes.status}`);
+    const finalData = await safeFetchJSON('/api/finalize-xlsx',
+      { input, themes, postsByTheme },
+      { label: 'finalize-final', retries: 2 });
 
     onDone({
       id: finalData.id,
