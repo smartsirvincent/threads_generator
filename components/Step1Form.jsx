@@ -30,6 +30,15 @@ function buildPayload(input) {
         purchase_url: (p.purchase_url || '').trim(),
       }))
       .filter((p) => p.name),
+    brand_logos: (input.brand_logos || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    avoid_terms: (input.avoid_terms || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    image_styles: input.image_styles || { scene: true, character: true, product: true },
   };
 }
 
@@ -42,6 +51,7 @@ export default function Step1Form({
   submitLabel = '下一步：AI 推薦主題 →',
   loadingLabel = '🔮 AI 推薦主題中…',
   showImageHint = true,
+  showImageStyles = false,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -217,6 +227,16 @@ export default function Step1Form({
       platforms: s.platforms.includes(p)
         ? s.platforms.filter((x) => x !== p)
         : [...s.platforms, p],
+    }));
+  }
+
+  function toggleImageStyle(key) {
+    setInput((s) => ({
+      ...s,
+      image_styles: {
+        ...(s.image_styles || { scene: true, character: true, product: true }),
+        [key]: !(s.image_styles?.[key] ?? true),
+      },
     }));
   }
 
@@ -448,6 +468,36 @@ export default function Step1Form({
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
+            <label className="label">
+              品牌 LOGO URL <span className="text-xs font-normal text-stone-500">（可選；一行一張；空白則嚴禁 AI 自行合成 LOGO）</span>
+            </label>
+            <textarea
+              className="input min-h-[60px] font-mono text-xs"
+              value={input.brand_logos || ''}
+              onChange={(e) => update('brand_logos', e.target.value)}
+              placeholder="https://...logo.png&#10;https://...logo-white.png"
+            />
+            <p className="mt-1 text-[11px] text-stone-500">
+              {(input.brand_logos || '').trim()
+                ? '✓ 已提供 LOGO,AI 生圖時會作為參考'
+                : '⚠ 未提供,AI 生圖時會嚴禁出現任何 LOGO / 品牌標字'}
+            </p>
+          </div>
+          <div>
+            <label className="label">
+              避免在文案/圖片提及 <span className="text-xs font-normal text-stone-500">（一行一條；競品名 / 禁字 / 不想用的形容詞）</span>
+            </label>
+            <textarea
+              className="input min-h-[60px] text-xs"
+              value={input.avoid_terms || ''}
+              onChange={(e) => update('avoid_terms', e.target.value)}
+              placeholder="例：&#10;競品 XX&#10;傳統&#10;最便宜"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
             <label className="label">受眾畫像 *</label>
             <textarea
               className="input min-h-[80px]"
@@ -466,6 +516,34 @@ export default function Step1Form({
             />
           </div>
         </div>
+
+        {showImageStyles && (
+          <div className="rounded-lg border border-purple-100 bg-purple-50/40 p-3">
+            <label className="label mb-2">
+              想生成的圖片風格 <span className="text-xs font-normal text-stone-500">（可多選；影響 AI 推薦主題與每張圖的構圖方向）</span>
+            </label>
+            <div className="flex flex-wrap gap-4">
+              {[
+                { key: 'scene', label: '🌆 情境圖', desc: '生活場景/環境/敘事感' },
+                { key: 'character', label: '🧍 人物 / 角色搭配', desc: '模特兒、使用者、角色帶入' },
+                { key: 'product', label: '📦 產品為主', desc: '特寫、純產品、低人為干擾' },
+              ].map((s) => (
+                <label key={s.key} className="flex flex-1 min-w-[180px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
+                  <input
+                    type="checkbox"
+                    checked={input.image_styles?.[s.key] !== false}
+                    onChange={() => toggleImageStyle(s.key)}
+                    className="mt-1 size-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-stone-800">{s.label}</span>
+                    <span className="block text-[11px] text-stone-500">{s.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>

@@ -302,28 +302,43 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
   }
 
   /**
-   * 用戶確定下載:呼叫 finalize-xlsx (只用 status='success' 的圖)
+   * 用戶確定下載:呼叫 finalize-xlsx
+   * 被刪/失敗的圖 → 對應的 post 整列從 postsByTheme 拿掉(不只是清 AI圖 欄)
+   * 同時調整 themes 的 monthly_count 反映實際數量,讓排程時間正確
    */
   async function handleConfirmDownload() {
     setPhase('finalizing');
-    // 把被刪的圖確保 post.AI圖 是空字串
+
+    // 收集要拿掉的 (themeName, postIndex) 配對
+    const toRemove = new Set();
     for (const img of imageState.images) {
       if (img.status !== 'success') {
-        const post = postsByThemeState[img.themeName]?.[img.postIndex];
-        if (post) post.AI圖 = '';
+        toRemove.add(`${img.themeName}#${img.postIndex}`);
       }
     }
 
+    // 從 postsByTheme 過濾掉刪除的 post (整列 row 刪除)
+    const filteredPosts = {};
+    for (const [themeName, posts] of Object.entries(postsByThemeState)) {
+      filteredPosts[themeName] = posts.filter((_, idx) => !toRemove.has(`${themeName}#${idx}`));
+    }
+
+    // 調整 themes 的 monthly_count 對應實際 post 數量
+    const adjustedThemes = themes.map((t) => ({
+      ...t,
+      monthly_count: filteredPosts[t.name]?.length ?? t.monthly_count,
+    }));
+
     try {
       const finalData = await safeFetchJSON('/api/finalize-xlsx',
-        { input, themes, postsByTheme: postsByThemeState },
+        { input, themes: adjustedThemes, postsByTheme: filteredPosts },
         { label: 'finalize-final', retries: 2 });
 
       onDone({
         id: finalData.id,
         download_url: finalData.download_url,
         file_size: finalData.file_size,
-        themes_summary: buildSummary(themes, postsByThemeState),
+        themes_summary: buildSummary(adjustedThemes, filteredPosts),
       });
       setPhase('done');
     } catch (e) {
@@ -538,7 +553,11 @@ function ImageReviewPanel({ images, onDelete, onRegenerate, onConfirm, regenerat
       </div>
 
       <p className="rounded-lg bg-stone-50 px-4 py-2 text-xs text-stone-600">
-        💡 每張圖右上角「×」可刪除。不滿意刪掉後按下方「重新生成」會用原 prompt 再跑一輪。確認後「下載 xlsx」才會封檔。
+        💡 每張圖右上角「×」=刪除整列（連對應的文案也會從 xlsx 拿掉，不是只刪圖）。
+        不滿意刪掉後按下方「重新生成」會用原 prompt 再跑一輪。確認後「下載 xlsx」才會封檔。
+      </p>
+      <p className="rounded-lg bg-amber-50 px-4 py-2 text-xs text-amber-800">
+        ⚠ 失敗 (⚠) 的圖也會被視為刪除狀態,確定下載後那幾列不會出現在 xlsx。可以先按重新生成救回來。
       </p>
 
       <div className="space-y-5">
@@ -605,9 +624,13 @@ function collectImageTasks(themes, postsByTheme, input) {
         && post.product_index < input.products.length
           ? post.product_index : 0;
       const product = input.products[pi];
-      const prompt = buildImagePrompt(post, input, product);
+      const prompt = buildImagePrompt(post, input, product, theme);
       if (!prompt) return;
-      const refs = pickRefs(product?.images && product.images.length > 0 ? product.images : []);
+      const productRefs = pickRefs(product?.images && product.images.length > 0 ? product.images : []);
+      const logoRefs = Array.isArray(input.brand_logos) && input.brand_logos.length > 0
+        ? [input.brand_logos[0]]
+        : [];
+      const refs = [...productRefs, ...logoRefs].slice(0, 4);
       tasks.push({
         themeName: theme.name,
         postIndex: pIdx,
@@ -619,18 +642,41 @@ function collectImageTasks(themes, postsByTheme, input) {
   return tasks;
 }
 
-function buildImagePrompt(post, input, product) {
+function buildImagePrompt(post, input, product, theme) {
   const keywords = post['Prompt核心關鍵字'] || post['Prompt 核心關鍵字'] || '';
   const main = post['主標題'] || post['首句Hook'] || '';
   const sub = post['副標題'] || post['切入點'] || '';
   const persona = input.brand_persona || '';
   if (!keywords && !main) return null;
+
+  // 圖片風格指令
+  const styleInstr = {
+    scene: 'Lifestyle scene / environmental composition. People may be peripheral; focus on the environment around the product.',
+    character: 'Include a model or character interacting with the product. Show usage, expression, emotional connection.',
+    product: 'Product-focused close-up. Minimal human presence. Clean composition spotlighting the product.',
+  }[theme?.image_style || 'product'];
+
+  // LOGO 處理
+  const hasLogo = Array.isArray(input.brand_logos) && input.brand_logos.length > 0;
+  const logoInstr = hasLogo
+    ? 'A brand logo reference is provided. You MAY include the logo subtly in a corner. Do NOT distort or invent variations.'
+    : 'STRICT: NO brand logo of any kind. NO brand name as text overlay. NO invented logos, badges, or branded text. Keep the composition logo-free.';
+
+  // Avoid 清單
+  const avoidArr = Array.isArray(input.avoid_terms) ? input.avoid_terms : [];
+  const avoidInstr = avoidArr.length > 0
+    ? `STRICT NEGATIVE — must NOT appear (including variations / synonyms / implications): ${avoidArr.join(', ')}.`
+    : '';
+
   return [
     product?.name && `SKU: ${product.name}`,
     keywords,
     main && `Main text: "${main}"`,
     sub && `Sub: "${sub}"`,
     `Brand vibe: ${input.brand}, ${persona.slice(0, 60)}`,
+    styleInstr,
+    logoInstr,
+    avoidInstr,
     'Photorealistic, social media post style, vibrant lighting',
   ].filter(Boolean).join('. ');
 }

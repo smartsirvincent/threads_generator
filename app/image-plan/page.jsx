@@ -105,6 +105,7 @@ export default function ImagePlanPage() {
           setInput={setInput}
           onLoadSample={loadSample}
           showImageHint={false}
+          showImageStyles={true}
           recommendEndpoint="/api/recommend-images"
           submitLabel="下一步：AI 推薦圖片主題 →"
           loadingLabel="🎨 AI 推薦圖片主題中…"
