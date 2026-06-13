@@ -43,18 +43,34 @@ export default function Step1Form({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [profiles, setProfiles] = useState([]);
+  const [cloudProfiles, setCloudProfiles] = useState([]);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState('');
 
   useEffect(() => {
     setProfiles(listProfiles());
+    refreshCloudProfiles();
   }, []);
 
   function refreshProfiles() {
     setProfiles(listProfiles());
   }
 
+  async function refreshCloudProfiles() {
+    setCloudError('');
+    try {
+      const res = await fetch('/api/profiles/list');
+      const data = await res.json();
+      if (res.ok) setCloudProfiles(data.profiles || []);
+      else setCloudError(data.error || `HTTP ${res.status}`);
+    } catch (e) {
+      setCloudError(e.message);
+    }
+  }
+
   function handleSaveProfile() {
     const defaultName = input.brand || getLastUsedName() || '我的設定';
-    const name = window.prompt('儲存當前設定為:', defaultName)?.trim();
+    const name = window.prompt('儲存到瀏覽器,名稱:', defaultName)?.trim();
     if (!name) return;
     if (profiles.includes(name) && !window.confirm(`「${name}」已存在，覆蓋嗎？`)) return;
     saveProfile(name, input);
@@ -65,7 +81,10 @@ export default function Step1Form({
     if (!name) return;
     const p = getProfile(name);
     if (!p) return;
-    // 保留 dry_run / generate_images,其餘從存檔覆蓋
+    applyProfile(p);
+  }
+
+  function applyProfile(p) {
     setInput((s) => ({
       ...s,
       ...p,
@@ -81,6 +100,97 @@ export default function Step1Form({
     if (!window.confirm(`刪除「${name}」？此操作無法復原`)) return;
     deleteProfile(name);
     refreshProfiles();
+  }
+
+  async function handleSaveCloud() {
+    const defaultName = input.brand || '我的設定';
+    const name = window.prompt('儲存到雲端 (Cloudinary),名稱:', defaultName)?.trim();
+    if (!name) return;
+    setCloudBusy(true);
+    setCloudError('');
+    try {
+      const { dry_run: _dr, generate_images: _gi, ...persistable } = input;
+      const res = await fetch('/api/profiles/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, profile: persistable }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      // optimistic: 立刻加入列表
+      setCloudProfiles((arr) => [{ publicId: data.publicId, url: data.url, name, createdAt: new Date().toISOString() }, ...arr]);
+    } catch (e) {
+      setCloudError(e.message);
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function handleLoadCloud(url) {
+    if (!url) return;
+    setCloudBusy(true);
+    setCloudError('');
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status} 載入失敗 (可能已刪除)`);
+      const data = await res.json();
+      if (data?.profile) applyProfile(data.profile);
+    } catch (e) {
+      setCloudError(e.message);
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function handleDeleteCloud(publicId, name) {
+    if (!window.confirm(`從雲端刪除「${name}」？此操作無法復原`)) return;
+    setCloudBusy(true);
+    setCloudError('');
+    try {
+      const res = await fetch('/api/profiles/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ publicId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      // optimistic
+      setCloudProfiles((arr) => arr.filter((p) => p.publicId !== publicId));
+    } catch (e) {
+      setCloudError(e.message);
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  function handleExportJSON() {
+    const { dry_run: _dr, generate_images: _gi, ...persistable } = input;
+    const json = JSON.stringify({ name: input.brand || 'profile', profile: persistable, savedAt: Date.now() }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (input.brand || 'profile').replace(/[^\w一-龥\-]/g, '_').slice(0, 40);
+    a.href = url;
+    a.download = `${safeName}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 200);
+  }
+
+  function handleImportJSON(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const p = data.profile || data;
+        applyProfile(p);
+      } catch (err) {
+        alert('讀取 JSON 失敗: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // 允許重選同一檔
   }
 
   function update(field, value) {
@@ -158,65 +268,136 @@ export default function Step1Form({
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* ===== 品牌設定 ===== */}
       <div className="card space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-stone-900">品牌設定</h2>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-stone-500">範例:</span>
-            {Object.keys({ '87 烤魚': 1, Infuz: 1, 瑞際: 1 }).map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => onLoadSample(name)}
-                className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50"
-              >
-                {name}
-              </button>
-            ))}
-            <span className="mx-1 text-stone-300">|</span>
-            <span className="text-stone-500">我的設定:</span>
-            {profiles.length === 0 ? (
-              <span className="text-stone-400">(尚未存)</span>
-            ) : (
-              <select
-                onChange={(e) => { handleLoadProfile(e.target.value); e.target.value = ''; }}
-                defaultValue=""
-                className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-700"
-              >
-                <option value="" disabled>載入存檔…</option>
-                {profiles.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            )}
-            <button
-              type="button"
-              onClick={handleSaveProfile}
-              className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
-              title="儲存當前設定到瀏覽器"
-            >
-              💾 儲存
-            </button>
-            {profiles.length > 0 && (
-              <details className="relative">
-                <summary className="cursor-pointer rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">
-                  管理
-                </summary>
-                <ul className="absolute right-0 z-10 mt-1 w-44 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
-                  {profiles.map((n) => (
-                    <li key={n} className="flex items-center justify-between gap-1 text-xs">
-                      <span className="truncate text-stone-700">{n}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteProfile(n)}
-                        className="rounded-md px-1.5 py-0.5 text-red-600 hover:bg-red-50"
-                      >
-                        🗑
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-stone-900">品牌設定</h2>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-stone-500">範例:</span>
+              {Object.keys({ '87 烤魚': 1, Infuz: 1, 瑞際: 1 }).map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => onLoadSample(name)}
+                  className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50"
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 rounded-lg bg-stone-50 p-3 text-xs sm:grid-cols-3">
+            {/* 本機 */}
+            <div className="space-y-1">
+              <div className="font-medium text-stone-600">💾 本機（這台瀏覽器）</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleSaveProfile}
+                  className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
+                >
+                  儲存
+                </button>
+                {profiles.length === 0 ? (
+                  <span className="text-stone-400">(尚未存)</span>
+                ) : (
+                  <select
+                    onChange={(e) => { handleLoadProfile(e.target.value); e.target.value = ''; }}
+                    defaultValue=""
+                    className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-700"
+                  >
+                    <option value="" disabled>載入…</option>
+                    {profiles.map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                )}
+                {profiles.length > 0 && (
+                  <details className="relative">
+                    <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
+                    <ul className="absolute left-0 z-20 mt-1 w-44 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
+                      {profiles.map((n) => (
+                        <li key={n} className="flex items-center justify-between gap-1">
+                          <span className="truncate text-stone-700">{n}</span>
+                          <button type="button" onClick={() => handleDeleteProfile(n)} className="rounded-md px-1 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            </div>
+
+            {/* 雲端 */}
+            <div className="space-y-1">
+              <div className="font-medium text-stone-600">☁️ 雲端（Cloudinary，跨裝置）</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleSaveCloud}
+                  disabled={cloudBusy}
+                  className="rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                >
+                  存雲端
+                </button>
+                {cloudProfiles.length === 0 ? (
+                  <span className="text-stone-400">(雲端無設定)</span>
+                ) : (
+                  <select
+                    onChange={(e) => { handleLoadCloud(e.target.value); e.target.value = ''; }}
+                    defaultValue=""
+                    disabled={cloudBusy}
+                    className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-700 disabled:opacity-50"
+                  >
+                    <option value="" disabled>載入…</option>
+                    {cloudProfiles.map((p) => (
+                      <option key={p.publicId} value={p.url}>{p.name}</option>
+                    ))}
+                  </select>
+                )}
+                {cloudProfiles.length > 0 && (
+                  <details className="relative">
+                    <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
+                    <ul className="absolute left-0 z-20 mt-1 w-56 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
+                      {cloudProfiles.map((p) => (
+                        <li key={p.publicId} className="flex items-center justify-between gap-1">
+                          <span className="truncate text-stone-700" title={p.publicId}>{p.name}</span>
+                          <button type="button" onClick={() => handleDeleteCloud(p.publicId, p.name)} className="rounded-md px-1 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                <button
+                  type="button"
+                  onClick={refreshCloudProfiles}
+                  disabled={cloudBusy}
+                  className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-500 hover:bg-stone-50"
+                  title="重新整理雲端列表"
+                >
+                  ↻
+                </button>
+              </div>
+              {cloudError && <div className="text-red-600">⚠ {cloudError.slice(0, 60)}</div>}
+            </div>
+
+            {/* JSON 檔案 */}
+            <div className="space-y-1">
+              <div className="font-medium text-stone-600">📁 JSON 檔案（備份）</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleExportJSON}
+                  className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50"
+                >
+                  📥 匯出
+                </button>
+                <label className="cursor-pointer rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">
+                  📤 匯入
+                  <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
