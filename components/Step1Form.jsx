@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { listProfiles, getProfile, saveProfile, deleteProfile, getLastUsedName } from '@/lib/profile-store.js';
+import {
+  listProfiles, getProfile, saveProfile, deleteProfile, getLastUsedName,
+  getCloudIndex, addToCloudIndex, removeFromCloudIndex, mergeCloudProfiles,
+} from '@/lib/profile-store.js';
 
 const ALL_PLATFORMS = ['Threads', 'IG', 'FB'];
 
@@ -49,6 +52,8 @@ export default function Step1Form({
 
   useEffect(() => {
     setProfiles(listProfiles());
+    // 先從 localStorage 顯示本機快取的雲端 index (即時),server 回來後再蓋過
+    setCloudProfiles(getCloudIndex());
     refreshCloudProfiles();
   }, []);
 
@@ -59,10 +64,14 @@ export default function Step1Form({
   async function refreshCloudProfiles() {
     setCloudError('');
     try {
-      const res = await fetch('/api/profiles/list');
+      const res = await fetch('/api/profiles/list', { cache: 'no-store' });
       const data = await res.json();
-      if (res.ok) setCloudProfiles(data.profiles || []);
-      else setCloudError(data.error || `HTTP ${res.status}`);
+      if (res.ok) {
+        // 合併本機 cloud index + server list,去重,server 為準
+        setCloudProfiles(mergeCloudProfiles(data.profiles || []));
+      } else {
+        setCloudError(data.error || `HTTP ${res.status}`);
+      }
     } catch (e) {
       setCloudError(e.message);
     }
@@ -117,8 +126,11 @@ export default function Step1Form({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      // optimistic: 立刻加入列表
-      setCloudProfiles((arr) => [{ publicId: data.publicId, url: data.url, name, createdAt: new Date().toISOString() }, ...arr]);
+      const entry = { publicId: data.publicId, url: data.url, name, createdAt: new Date().toISOString() };
+      // 1. 寫進 localStorage cloud index (reload 後仍能看到)
+      addToCloudIndex(entry);
+      // 2. optimistic 加入 UI 列表
+      setCloudProfiles((arr) => [entry, ...arr.filter((p) => p.publicId !== entry.publicId)]);
     } catch (e) {
       setCloudError(e.message);
     } finally {
@@ -154,7 +166,9 @@ export default function Step1Form({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      // optimistic
+      // 1. 從 localStorage cloud index 拿掉
+      removeFromCloudIndex(publicId);
+      // 2. optimistic 從 UI 拿掉
       setCloudProfiles((arr) => arr.filter((p) => p.publicId !== publicId));
     } catch (e) {
       setCloudError(e.message);

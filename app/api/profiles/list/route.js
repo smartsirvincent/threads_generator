@@ -29,7 +29,9 @@ export async function GET() {
       };
     }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    return NextResponse.json({ profiles });
+    return NextResponse.json({ profiles }, {
+      headers: { 'cache-control': 'no-store, no-cache, must-revalidate' },
+    });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
