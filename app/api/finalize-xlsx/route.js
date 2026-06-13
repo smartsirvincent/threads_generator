@@ -18,7 +18,8 @@ export async function POST(req) {
     const input = normalizeInput(rawInput);
 
     const postsByTheme = new Map(Object.entries(rawPostsByTheme || {}));
-    const startDate = input.start_date ? new Date(input.start_date) : new Date();
+    // start_date 是 optional;沒提供就傳 null 讓 excel-writer 把發文時間欄留空
+    const startDate = input.start_date ? new Date(input.start_date) : null;
 
     const xlsxBuffer = await writeWorkbookBuffer({
       input,

@@ -47,7 +47,7 @@ const SAMPLES = {
         purchase_url: '',
       },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
   Infuz: {
     brand: 'Infuz',
@@ -82,7 +82,7 @@ const SAMPLES = {
         purchase_url: 'https://goingto.tw/CZgUT',
       },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
   瑞際: {
     brand: 'LUFTRUM 瑞際',
@@ -110,7 +110,7 @@ const SAMPLES = {
         purchase_url: 'https://reurl.cc/7ER2yk',
       },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
 };
 
@@ -122,7 +122,7 @@ const EMPTY_INPUT = {
   purchase_url: '',
   platforms: ['Threads'],
   monthly_total: 100,
-  start_date: new Date().toISOString().slice(0, 10),
+  start_date: '',
   products: [
     { name: '', features: '', images: [''], purchase_url: '' },
   ],

@@ -28,6 +28,8 @@ function buildPayload(input) {
           .map((s) => (s || '').trim())
           .filter(Boolean),
         purchase_url: (p.purchase_url || '').trim(),
+        include_in_image_gen: p.include_in_image_gen !== false,
+        image_styles: p.image_styles || { scene: true, character: true, product: true },
       }))
       .filter((p) => p.name),
     brand_logos: (input.brand_logos || '')
@@ -38,7 +40,7 @@ function buildPayload(input) {
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean),
-    image_styles: input.image_styles || { scene: true, character: true, product: true },
+    image_theme_strategy: input.image_theme_strategy === 'per_sku' ? 'per_sku' : 'shared',
   };
 }
 
@@ -230,13 +232,16 @@ export default function Step1Form({
     }));
   }
 
-  function toggleImageStyle(key) {
+  function toggleProductImageStyle(i, key) {
     setInput((s) => ({
       ...s,
-      image_styles: {
-        ...(s.image_styles || { scene: true, character: true, product: true }),
-        [key]: !(s.image_styles?.[key] ?? true),
-      },
+      products: s.products.map((p, idx) => idx === i ? {
+        ...p,
+        image_styles: {
+          ...(p.image_styles || { scene: true, character: true, product: true }),
+          [key]: !(p.image_styles?.[key] ?? true),
+        },
+      } : p),
     }));
   }
 
@@ -520,20 +525,20 @@ export default function Step1Form({
         {showImageStyles && (
           <div className="rounded-lg border border-purple-100 bg-purple-50/40 p-3">
             <label className="label mb-2">
-              想生成的圖片風格 <span className="text-xs font-normal text-stone-500">（可多選；影響 AI 推薦主題與每張圖的構圖方向）</span>
+              主題分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦圖片主題的方式）</span>
             </label>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-3">
               {[
-                { key: 'scene', label: '🌆 情境圖', desc: '生活場景/環境/敘事感' },
-                { key: 'character', label: '🧍 人物 / 角色搭配', desc: '模特兒、使用者、角色帶入' },
-                { key: 'product', label: '📦 產品為主', desc: '特寫、純產品、低人為干擾' },
+                { key: 'shared', label: '🔀 共用主題', desc: '一個主題輪替多個產品（主題數量少、視覺多元）' },
+                { key: 'per_sku', label: '📌 一 SKU 一主題', desc: '每個產品有專屬主題（主題名直接指向 SKU）' },
               ].map((s) => (
-                <label key={s.key} className="flex flex-1 min-w-[180px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
+                <label key={s.key} className="flex flex-1 min-w-[200px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
                   <input
-                    type="checkbox"
-                    checked={input.image_styles?.[s.key] !== false}
-                    onChange={() => toggleImageStyle(s.key)}
-                    className="mt-1 size-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                    type="radio"
+                    name="image_theme_strategy"
+                    checked={(input.image_theme_strategy || 'shared') === s.key}
+                    onChange={() => update('image_theme_strategy', s.key)}
+                    className="mt-1 size-4 border-stone-300 text-purple-600 focus:ring-purple-500"
                   />
                   <span>
                     <span className="block text-sm font-medium text-stone-800">{s.label}</span>
@@ -542,10 +547,13 @@ export default function Step1Form({
                 </label>
               ))}
             </div>
+            <p className="mt-2 text-[11px] text-stone-500">
+              💡 圖片風格（情境 / 人物 / 產品為主）在下方每個產品卡片裡各自設定
+            </p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="label">啟用平台</label>
             <div className="flex gap-3 pt-2">
@@ -573,15 +581,6 @@ export default function Step1Form({
               max={500}
             />
           </div>
-          <div>
-            <label className="label">起始日期</label>
-            <input
-              type="date"
-              className="input"
-              value={input.start_date}
-              onChange={(e) => update('start_date', e.target.value)}
-            />
-          </div>
         </div>
       </div>
 
@@ -605,6 +604,8 @@ export default function Step1Form({
               onChange={(patch) => updateProduct(i, patch)}
               onRemove={() => removeProduct(i)}
               canRemove={(input.products || []).length > 1}
+              showImageGenControls={showImageStyles}
+              onToggleStyle={(key) => toggleProductImageStyle(i, key)}
             />
           ))}
         </div>
@@ -656,7 +657,7 @@ export default function Step1Form({
   );
 }
 
-function ProductCard({ index, product, onChange, onRemove, canRemove }) {
+function ProductCard({ index, product, onChange, onRemove, canRemove, showImageGenControls = false, onToggleStyle }) {
   const [expanded, setExpanded] = useState(!product.features);
 
   function updateImage(i, value) {
@@ -671,12 +672,30 @@ function ProductCard({ index, product, onChange, onRemove, canRemove }) {
     onChange({ images: (product.images || []).filter((_, idx) => idx !== i) });
   }
 
+  const styles = product.image_styles || { scene: true, character: true, product: true };
+  const enabledCount = ['scene', 'character', 'product'].filter((k) => styles[k]).length;
+
   return (
-    <div className="rounded-xl border border-stone-200 bg-stone-50/40 p-4">
+    <div className={`rounded-xl border p-4 ${
+      showImageGenControls && product.include_in_image_gen === false
+        ? 'border-stone-300 bg-stone-100/60 opacity-70'
+        : 'border-stone-200 bg-stone-50/40'
+    }`}>
       <div className="flex items-center gap-3">
         <span className="flex size-6 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-stone-600">
           {index + 1}
         </span>
+        {showImageGenControls && (
+          <label className="flex items-center gap-1.5 text-xs text-stone-600" title="是否包含在圖片生成">
+            <input
+              type="checkbox"
+              checked={product.include_in_image_gen !== false}
+              onChange={(e) => onChange({ include_in_image_gen: e.target.checked })}
+              className="size-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+            />
+            生圖
+          </label>
+        )}
         <input
           className="input flex-1"
           value={product.name}
@@ -701,6 +720,27 @@ function ProductCard({ index, product, onChange, onRemove, canRemove }) {
           </button>
         )}
       </div>
+
+      {showImageGenControls && product.include_in_image_gen !== false && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-3 text-xs">
+          <span className="text-stone-600">可接受的圖片風格 ({enabledCount}/3):</span>
+          {[
+            { key: 'scene', label: '🌆 情境' },
+            { key: 'character', label: '🧍 人物' },
+            { key: 'product', label: '📦 產品為主' },
+          ].map((s) => (
+            <label key={s.key} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-stone-700 hover:bg-stone-50">
+              <input
+                type="checkbox"
+                checked={styles[s.key] !== false}
+                onChange={() => onToggleStyle?.(s.key)}
+                className="size-3.5 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+              />
+              {s.label}
+            </label>
+          ))}
+        </div>
+      )}
 
       {expanded && (
         <div className="mt-3 space-y-3 border-t border-stone-200 pt-3">

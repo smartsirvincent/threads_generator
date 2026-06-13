@@ -24,7 +24,7 @@ const SAMPLES = {
       { name: '絕代雙椒烤魚火鍋', features: '青藤椒+大紅袍,獨家底料', images: ['https://i.ibb.co/Y4rBjGrd/image.png'], purchase_url: '' },
       { name: '大汗孜巴烤魚火鍋', features: '濃郁孜然香氣,湯汁吸滿', images: ['https://i.ibb.co/hxBH3bFG/image.jpg'], purchase_url: '' },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
   Infuz: {
     brand: 'Infuz',
@@ -39,7 +39,7 @@ const SAMPLES = {
       { name: '韓系無彈直筒寬褲', features: '褪色感、立體曲線剪裁', images: ['https://i.ibb.co/qYfCRwhF/LINE-ALBUM-24-250122-24.png'], purchase_url: '' },
       { name: '撞色系短版針織毛衣', features: '輕柔親膚、撞色層次', images: ['https://i.ibb.co/14zmpb7/LINE-ALBUM-2025-251121-3.jpg'], purchase_url: '' },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
   瑞際: {
     brand: 'LUFTRUM 瑞際',
@@ -53,7 +53,7 @@ const SAMPLES = {
       { name: 'NCX250 智能新風淨化全熱交換機', features: '270mm 超薄,智能面板', images: ['https://i.ibb.co/ZzSBwnyb/NCX250.png'], purchase_url: 'https://reurl.cc/aX1lal' },
       { name: 'C3510 小極淨電漿除菌清淨機', features: 'CADR 350,亞麻灰/粉/藍三色', images: ['https://i.ibb.co/whhgM0Zz/C3510.png'], purchase_url: 'https://reurl.cc/7ER2yk' },
     ],
-    start_date: new Date().toISOString().slice(0, 10),
+    start_date: '',
   },
 };
 
@@ -65,12 +65,17 @@ const EMPTY_INPUT = {
   purchase_url: '',
   platforms: ['Threads', 'IG'],
   monthly_total: 60,
-  start_date: new Date().toISOString().slice(0, 10),
+  start_date: '', // 起始日期已從 UI 移除,留空白 → xlsx 發文時間欄空白
   products: [
-    { name: '', features: '', images: [''], purchase_url: '' },
+    {
+      name: '', features: '', images: [''], purchase_url: '',
+      include_in_image_gen: true,
+      image_styles: { scene: true, character: true, product: true },
+    },
   ],
+  image_theme_strategy: 'shared',
   dry_run: false,
-  generate_images: true, // 圖片規劃必生圖
+  generate_images: true,
 };
 
 export default function ImagePlanPage() {

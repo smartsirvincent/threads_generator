@@ -624,7 +624,18 @@ function collectImageTasks(themes, postsByTheme, input) {
         && post.product_index < input.products.length
           ? post.product_index : 0;
       const product = input.products[pi];
-      const prompt = buildImagePrompt(post, input, product, theme);
+      // 跳過未勾選「生圖」的 SKU (防呆,理論上 prompt 已限制 enabled SKU,但雙保險)
+      if (product?.include_in_image_gen === false) return;
+
+      // 風格決定: 優先用 SKU 啟用的風格;若 theme.image_style 在 SKU 允許清單內就用它,
+      //          否則從 SKU 允許風格隨機挑一個
+      const skuStyles = enabledStyles(product);
+      const themeStyle = theme.image_style;
+      const chosenStyle = (themeStyle && skuStyles.includes(themeStyle))
+        ? themeStyle
+        : skuStyles[Math.floor(Math.random() * skuStyles.length)];
+
+      const prompt = buildImagePrompt(post, input, product, { ...theme, image_style: chosenStyle });
       if (!prompt) return;
       const productRefs = pickRefs(product?.images && product.images.length > 0 ? product.images : []);
       const logoRefs = Array.isArray(input.brand_logos) && input.brand_logos.length > 0
@@ -640,6 +651,15 @@ function collectImageTasks(themes, postsByTheme, input) {
     });
   }
   return tasks;
+}
+
+function enabledStyles(productOrInput) {
+  const s = productOrInput?.image_styles || {};
+  const out = [];
+  if (s.scene) out.push('scene');
+  if (s.character) out.push('character');
+  if (s.product) out.push('product');
+  return out.length > 0 ? out : ['product'];
 }
 
 function buildImagePrompt(post, input, product, theme) {

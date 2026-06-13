@@ -188,7 +188,7 @@ export async function POST(req) {
 
         const id = randomUUID();
         const safeName = (input.brand || 'untitled').replace(/[^\w一-龥-]/g, '_').slice(0, 40);
-        const startDate = input.start_date ? new Date(input.start_date) : new Date();
+        const startDate = input.start_date ? new Date(input.start_date) : null;
 
         const cleanedInput = {
           ...input,
