@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Threads 貼文產生器',
-  description: '輸入產品特色 → AI 推薦客製化主題 → 整月內容批次生成 → 輸出 xlsx',
+  title: '文案產生器',
+  description: '輸入產品特色 → AI 推薦客製化主題 → 整月文案 + 圖片批次生成 → 輸出 xlsx',
 };
 
 export default function RootLayout({ children }) {
@@ -13,12 +13,11 @@ export default function RootLayout({ children }) {
           <header className="mb-10 flex items-center justify-between">
             <a href="/" className="flex items-center gap-2 text-2xl font-semibold text-stone-900 hover:opacity-80">
               <span className="inline-block size-8 rounded-lg bg-brand-500" />
-              Threads 貼文產生器
+              文案產生器
             </a>
             <nav className="flex items-center gap-3 text-sm sm:gap-4">
-              <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文字</a>
+              <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文案</a>
               <a href="/image-plan" className="text-stone-500 hover:text-stone-900">🖼️ 圖片</a>
-              <a href="/images" className="text-stone-500 hover:text-stone-900">🎨 補圖</a>
             </nav>
           </header>
           {children}

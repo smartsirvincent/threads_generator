@@ -659,6 +659,7 @@ function enabledStyles(productOrInput) {
   if (s.scene) out.push('scene');
   if (s.character) out.push('character');
   if (s.product) out.push('product');
+  if (s.ecommerce) out.push('ecommerce');
   return out.length > 0 ? out : ['product'];
 }
 
@@ -670,11 +671,18 @@ function buildImagePrompt(post, input, product, theme) {
   if (!keywords && !main) return null;
 
   // 圖片風格指令
+  const chosenStyle = theme?.image_style || 'product';
+  const promoOffer = (product?.promo_offer || '').trim();
   const styleInstr = {
     scene: 'Lifestyle scene / environmental composition. People may be peripheral; focus on the environment around the product.',
     character: 'Include a model or character interacting with the product. Show usage, expression, emotional connection.',
     product: 'Product-focused close-up. Minimal human presence. Clean composition spotlighting the product.',
-  }[theme?.image_style || 'product'];
+    ecommerce: `E-commerce promotional layout: prominent price tag / discount badge / limited-time banner / clear CTA area, conversion-oriented composition${promoOffer ? `. Promo content to show on graphic: "${promoOffer}"` : ''}.`,
+  }[chosenStyle];
+
+  // 該 SKU 自訂的視覺強化方向 (optional)
+  const focus = (product?.image_focus || '').trim();
+  const focusInstr = focus ? `Strengthen visual emphasis on: ${focus}.` : '';
 
   // LOGO 處理
   const hasLogo = Array.isArray(input.brand_logos) && input.brand_logos.length > 0;
@@ -695,6 +703,7 @@ function buildImagePrompt(post, input, product, theme) {
     sub && `Sub: "${sub}"`,
     `Brand vibe: ${input.brand}, ${persona.slice(0, 60)}`,
     styleInstr,
+    focusInstr,
     logoInstr,
     avoidInstr,
     'Photorealistic, social media post style, vibrant lighting',

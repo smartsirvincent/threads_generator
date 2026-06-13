@@ -29,7 +29,9 @@ function buildPayload(input) {
           .filter(Boolean),
         purchase_url: (p.purchase_url || '').trim(),
         include_in_image_gen: p.include_in_image_gen !== false,
-        image_styles: p.image_styles || { scene: true, character: true, product: true },
+        image_styles: p.image_styles || { scene: true, character: true, product: true, ecommerce: false },
+        promo_offer: (p.promo_offer || '').trim(),
+        image_focus: (p.image_focus || '').trim(),
       }))
       .filter((p) => p.name),
     brand_logos: (input.brand_logos || '')
@@ -233,15 +235,19 @@ export default function Step1Form({
   }
 
   function toggleProductImageStyle(i, key) {
+    // 預設值: scene/character/product 預設 true,ecommerce 預設 false
+    const defaults = { scene: true, character: true, product: true, ecommerce: false };
     setInput((s) => ({
       ...s,
-      products: s.products.map((p, idx) => idx === i ? {
-        ...p,
-        image_styles: {
-          ...(p.image_styles || { scene: true, character: true, product: true }),
-          [key]: !(p.image_styles?.[key] ?? true),
-        },
-      } : p),
+      products: s.products.map((p, idx) => {
+        if (idx !== i) return p;
+        const current = p.image_styles || defaults;
+        const prevVal = current[key] !== undefined ? current[key] : defaults[key];
+        return {
+          ...p,
+          image_styles: { ...defaults, ...current, [key]: !prevVal },
+        };
+      }),
     }));
   }
 
@@ -637,7 +643,7 @@ export default function Step1Form({
         </div>
         {showImageHint && (
           <p className="px-4 text-xs text-stone-500">
-            💡 文字版輸出後想補 AI 圖片，請到 <a href="/images" className="text-brand-600 underline">「補圖工坊」</a> 上傳 xlsx，或直接從首頁進「🖼️ 圖片規劃」獨立流程。
+            💡 想要 AI 圖片，請從首頁進「🖼️ 圖片規劃」獨立流程。
           </p>
         )}
       </div>
@@ -672,8 +678,8 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
     onChange({ images: (product.images || []).filter((_, idx) => idx !== i) });
   }
 
-  const styles = product.image_styles || { scene: true, character: true, product: true };
-  const enabledCount = ['scene', 'character', 'product'].filter((k) => styles[k]).length;
+  const styles = product.image_styles || { scene: true, character: true, product: true, ecommerce: false };
+  const enabledCount = ['scene', 'character', 'product', 'ecommerce'].filter((k) => styles[k]).length;
 
   return (
     <div className={`rounded-xl border p-4 ${
@@ -722,23 +728,46 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
       </div>
 
       {showImageGenControls && product.include_in_image_gen !== false && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-3 text-xs">
-          <span className="text-stone-600">可接受的圖片風格 ({enabledCount}/3):</span>
-          {[
-            { key: 'scene', label: '🌆 情境' },
-            { key: 'character', label: '🧍 人物' },
-            { key: 'product', label: '📦 產品為主' },
-          ].map((s) => (
-            <label key={s.key} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-stone-700 hover:bg-stone-50">
-              <input
-                type="checkbox"
-                checked={styles[s.key] !== false}
-                onChange={() => onToggleStyle?.(s.key)}
-                className="size-3.5 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+        <div className="mt-3 space-y-3 border-t border-stone-200 pt-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-stone-600">可接受的圖片風格 ({enabledCount}/4):</span>
+            {[
+              { key: 'scene', label: '🌆 情境', def: true },
+              { key: 'character', label: '🧍 人物', def: true },
+              { key: 'product', label: '📦 產品為主', def: true },
+              { key: 'ecommerce', label: '🛒 電商促銷', def: false },
+            ].map((s) => (
+              <label key={s.key} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-stone-700 hover:bg-stone-50">
+                <input
+                  type="checkbox"
+                  checked={s.def ? styles[s.key] !== false : styles[s.key] === true}
+                  onChange={() => onToggleStyle?.(s.key)}
+                  className="size-3.5 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                />
+                {s.label}
+              </label>
+            ))}
+          </div>
+          {styles.ecommerce && (
+            <div>
+              <label className="label text-xs">優惠內容 <span className="font-normal text-stone-500">（選填，電商促銷風格用，例：「買 2 送 1」「中秋限定 7 折」）</span></label>
+              <textarea
+                className="input min-h-[50px] text-xs"
+                value={product.promo_offer || ''}
+                onChange={(e) => onChange({ promo_offer: e.target.value })}
+                placeholder="這個 SKU 的優惠/活動文字"
               />
-              {s.label}
-            </label>
-          ))}
+            </div>
+          )}
+          <div>
+            <label className="label text-xs">希望強化的圖片生成方向 <span className="font-normal text-stone-500">（選填，例：「強調手感」「以煙霧/水氣表現新鮮」「黃昏光氛」）</span></label>
+            <textarea
+              className="input min-h-[50px] text-xs"
+              value={product.image_focus || ''}
+              onChange={(e) => onChange({ image_focus: e.target.value })}
+              placeholder="這個 SKU 的視覺重點/想強化的元素"
+            />
+          </div>
         </div>
       )}
 
