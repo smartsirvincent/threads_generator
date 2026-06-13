@@ -45,9 +45,13 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
     () => themes.map((t) => ({ name: t.name, type: t.type, target: t.monthly_count || 30, done: false, count: 0, error: null }))
   );
   const [textXlsxUrl, setTextXlsxUrl] = useState(null);
-  const [phase, setPhase] = useState('text'); // 'text' | 'images' | 'done' | 'error'
+  // phase: 'text' | 'images' | 'review' | 'finalizing' | 'done' | 'error'
+  // review = 圖片全跑完,等待用戶刪/重生/確認
+  const [phase, setPhase] = useState('text');
   const [error, setError] = useState('');
   const [imageState, setImageState] = useState({ total: 0, done: 0, images: [] });
+  const [postsByThemeState, setPostsByThemeState] = useState({});
+  const [regenerating, setRegenerating] = useState(false);
   const startedRef = useRef(false);
   const cancelRef = useRef(false);
 
@@ -127,7 +131,8 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
     } catch (_) {}
 
     // ===== Phase 2: 圖片 (並行) =====
-    const wantImages = input.generate_images !== false && !input.dry_run;
+    // dry_run 模式下也產 mock 圖片 task,用 placeholder URL,讓 review UI 可測
+    const wantImages = input.generate_images !== false;
     const imageTasks = wantImages ? collectImageTasks(themes, postsByTheme, input) : [];
 
     if (imageTasks.length === 0) {
@@ -145,7 +150,18 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
       return;
     }
 
-    setImageState({ total: imageTasks.length, done: 0, images: [] });
+    // 初始化每張為 pending,task meta 保留供 regenerate 用
+    const initialImages = imageTasks.map((t, idx) => ({
+      id: `img-${idx}`,
+      themeName: t.themeName,
+      postIndex: t.postIndex,
+      prompt: t.prompt,
+      refs: t.refs,
+      url: null,
+      status: 'pending',
+      error: null,
+    }));
+    setImageState({ total: imageTasks.length, done: 0, images: initialImages });
 
     // 並行 pool
     let cursor = 0;
@@ -155,6 +171,21 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         const idx = cursor++;
         if (idx >= imageTasks.length) return;
         const t = imageTasks[idx];
+
+        // dry-run: 用 placeholder picsum URL,跳過實際 KIE
+        if (input.dry_run) {
+          await new Promise((r) => setTimeout(r, 100 + Math.random() * 300));
+          const mockUrl = `https://picsum.photos/seed/${encodeURIComponent(t.themeName + idx)}/400/400`;
+          const post = postsByTheme[t.themeName]?.[t.postIndex];
+          if (post) post.AI圖 = mockUrl;
+          setImageState((s) => ({
+            ...s,
+            done: s.done + 1,
+            images: s.images.map((img, i) => i === idx ? { ...img, url: mockUrl, status: 'success' } : img),
+          }));
+          continue;
+        }
+
         try {
           const d = await safeFetchJSON('/api/gen-image', {
             prompt: t.prompt,
@@ -168,13 +199,13 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
           setImageState((s) => ({
             ...s,
             done: s.done + 1,
-            images: [...s.images, { themeName: t.themeName, postIndex: t.postIndex, url: d.url }],
+            images: s.images.map((img, i) => i === idx ? { ...img, url: d.url, status: 'success' } : img),
           }));
         } catch (e) {
           setImageState((s) => ({
             ...s,
             done: s.done + 1,
-            images: [...s.images, { themeName: t.themeName, postIndex: t.postIndex, error: e.message }],
+            images: s.images.map((img, i) => i === idx ? { ...img, error: e.message, status: 'failed' } : img),
           }));
         }
       }
@@ -183,18 +214,122 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
 
     if (cancelRef.current) return;
 
-    // ===== 最終 finalize: 含圖 xlsx =====
-    const finalData = await safeFetchJSON('/api/finalize-xlsx',
-      { input, themes, postsByTheme },
-      { label: 'finalize-final', retries: 2 });
+    // 跑完不直接 finalize,進入 review 階段讓用戶選刪/重生/確認
+    setPostsByThemeState(postsByTheme);
+    setPhase('review');
+  }
 
-    onDone({
-      id: finalData.id,
-      download_url: finalData.download_url,
-      file_size: finalData.file_size,
-      themes_summary: buildSummary(themes, postsByTheme),
-    });
-    setPhase('done');
+  /**
+   * Review 階段:用戶刪除某張圖
+   */
+  function handleDelete(imgId) {
+    setImageState((s) => ({
+      ...s,
+      images: s.images.map((img) => img.id === imgId
+        ? { ...img, status: 'deleted', url: null }
+        : img),
+    }));
+    // 同步清掉 post.AI圖
+    const img = imageState.images.find((x) => x.id === imgId);
+    if (img) {
+      const post = postsByThemeState[img.themeName]?.[img.postIndex];
+      if (post) post.AI圖 = '';
+    }
+  }
+
+  /**
+   * 重新生成:對所有 status='deleted' 的圖再跑 KIE
+   */
+  async function handleRegenerateDeleted() {
+    const toRegen = imageState.images.filter((img) => img.status === 'deleted');
+    if (toRegen.length === 0) return;
+    setRegenerating(true);
+
+    // 標記 regenerating
+    const ids = new Set(toRegen.map((i) => i.id));
+    setImageState((s) => ({
+      ...s,
+      images: s.images.map((img) => ids.has(img.id)
+        ? { ...img, status: 'regenerating', error: null }
+        : img),
+    }));
+
+    // 並行跑
+    let cursor = 0;
+    async function worker() {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= toRegen.length) return;
+        const t = toRegen[idx];
+
+        // dry-run: mock URL
+        if (input.dry_run) {
+          await new Promise((r) => setTimeout(r, 200 + Math.random() * 400));
+          const mockUrl = `https://picsum.photos/seed/${encodeURIComponent(t.themeName + t.id + Date.now())}/400/400`;
+          const post = postsByThemeState[t.themeName]?.[t.postIndex];
+          if (post) post.AI圖 = mockUrl;
+          setImageState((s) => ({
+            ...s,
+            images: s.images.map((img) => img.id === t.id ? { ...img, url: mockUrl, status: 'success' } : img),
+          }));
+          continue;
+        }
+
+        try {
+          const d = await safeFetchJSON('/api/gen-image', {
+            prompt: t.prompt,
+            referenceImages: t.refs,
+            size: '1:1',
+            brand: input.brand,
+            themeName: t.themeName,
+          }, { label: 'gen-image-regen', retries: 2 });
+          const post = postsByThemeState[t.themeName]?.[t.postIndex];
+          if (post) post.AI圖 = d.url;
+          setImageState((s) => ({
+            ...s,
+            images: s.images.map((img) => img.id === t.id ? { ...img, url: d.url, status: 'success' } : img),
+          }));
+        } catch (e) {
+          setImageState((s) => ({
+            ...s,
+            images: s.images.map((img) => img.id === t.id ? { ...img, status: 'deleted', error: e.message } : img),
+          }));
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, toRegen.length) }, worker));
+    setRegenerating(false);
+  }
+
+  /**
+   * 用戶確定下載:呼叫 finalize-xlsx (只用 status='success' 的圖)
+   */
+  async function handleConfirmDownload() {
+    setPhase('finalizing');
+    // 把被刪的圖確保 post.AI圖 是空字串
+    for (const img of imageState.images) {
+      if (img.status !== 'success') {
+        const post = postsByThemeState[img.themeName]?.[img.postIndex];
+        if (post) post.AI圖 = '';
+      }
+    }
+
+    try {
+      const finalData = await safeFetchJSON('/api/finalize-xlsx',
+        { input, themes, postsByTheme: postsByThemeState },
+        { label: 'finalize-final', retries: 2 });
+
+      onDone({
+        id: finalData.id,
+        download_url: finalData.download_url,
+        file_size: finalData.file_size,
+        themes_summary: buildSummary(themes, postsByThemeState),
+      });
+      setPhase('done');
+    } catch (e) {
+      setError(e.message);
+      setPhase('error');
+    }
   }
 
   const textDone = themeProgress.filter((s) => s.done).length;
@@ -269,13 +404,12 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         )}
       </div>
 
-      {/* ===== 圖片進度 ===== */}
-      {imageState.total > 0 && (
+      {/* ===== 圖片進度 (跑中) ===== */}
+      {imageState.total > 0 && phase === 'images' && (
         <div className="card space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-stone-900">
               🎨 圖片生成 {imageState.done}/{imageState.total}
-              {phase === 'done' && ' ✓'}
             </h2>
             <span className="text-xs text-stone-500">並行 {IMAGE_CONCURRENCY} 個</span>
           </div>
@@ -287,32 +421,30 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
             />
           </div>
 
-          {imageState.images.length > 0 && (
+          {imageState.images.filter((img) => img.url || img.error).length > 0 && (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {imageState.images.map((img, i) => (
-                <div key={i} className="relative overflow-hidden rounded-lg border border-stone-200">
-                  {img.error ? (
-                    <div className="flex aspect-square items-center justify-center bg-red-50 p-2 text-center text-[10px] text-red-600">
-                      ⚠ {img.error.slice(0, 30)}
-                    </div>
-                  ) : (
-                    <a href={img.url} target="_blank" rel="noreferrer" className="block">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={img.url}
-                        alt={`${img.themeName} #${img.postIndex + 1}`}
-                        className="aspect-square w-full object-cover"
-                        loading="lazy"
-                      />
-                    </a>
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[10px] text-white">
-                    {img.themeName} #{img.postIndex + 1}
-                  </div>
-                </div>
+              {imageState.images.filter((img) => img.url || img.error).slice(-12).map((img) => (
+                <ImageTile key={img.id} img={img} compact />
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ===== 圖片管理 (review 階段) ===== */}
+      {phase === 'review' && imageState.total > 0 && (
+        <ImageReviewPanel
+          images={imageState.images}
+          onDelete={handleDelete}
+          onRegenerate={handleRegenerateDeleted}
+          onConfirm={handleConfirmDownload}
+          regenerating={regenerating}
+        />
+      )}
+
+      {phase === 'finalizing' && (
+        <div className="card text-center">
+          <p className="text-stone-700">📦 組裝 xlsx 中…</p>
         </div>
       )}
 
@@ -324,6 +456,141 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ImageTile({ img, compact = false, onDelete }) {
+  const isDeleted = img.status === 'deleted';
+  const isRegen = img.status === 'regenerating';
+  const isPending = img.status === 'pending';
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded-lg border ${
+        isDeleted ? 'border-red-300 bg-red-50' :
+        isRegen ? 'border-amber-300 bg-amber-50' :
+        'border-stone-200'
+      }`}
+    >
+      {(isPending || isRegen) ? (
+        <div className="flex aspect-square items-center justify-center bg-stone-50 text-xs text-stone-500">
+          {isRegen ? '🔄 重新生成中…' : '⏳ 等待中'}
+        </div>
+      ) : img.error && !img.url ? (
+        <div className="flex aspect-square items-center justify-center bg-red-50 p-2 text-center text-[10px] text-red-600">
+          ⚠ {img.error?.slice(0, 30)}
+        </div>
+      ) : isDeleted ? (
+        <div className="flex aspect-square items-center justify-center bg-stone-100 text-center text-xs text-stone-500">
+          🗑 已刪除
+        </div>
+      ) : (
+        <a href={img.url} target="_blank" rel="noreferrer" className="block">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={img.url}
+            alt={`${img.themeName} #${img.postIndex + 1}`}
+            className="aspect-square w-full object-cover"
+            loading="lazy"
+          />
+        </a>
+      )}
+
+      {!compact && onDelete && img.status === 'success' && (
+        <button
+          type="button"
+          onClick={() => onDelete(img.id)}
+          className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/60 text-sm text-white hover:bg-red-600"
+          title="刪除這張"
+        >
+          ×
+        </button>
+      )}
+
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[10px] text-white">
+        #{img.postIndex + 1}
+      </div>
+    </div>
+  );
+}
+
+function ImageReviewPanel({ images, onDelete, onRegenerate, onConfirm, regenerating }) {
+  const success = images.filter((i) => i.status === 'success').length;
+  const deleted = images.filter((i) => i.status === 'deleted').length;
+  const failed = images.filter((i) => i.status === 'failed').length;
+
+  const byTheme = images.reduce((acc, img) => {
+    if (!acc[img.themeName]) acc[img.themeName] = [];
+    acc[img.themeName].push(img);
+    return acc;
+  }, {});
+
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-stone-900">
+          🎨 圖片管理（生成完成，請預覽 / 刪除 / 確認）
+        </h2>
+        <span className="text-xs text-stone-500">
+          ✓ {success} · 🗑 {deleted} · ⚠ {failed}
+        </span>
+      </div>
+
+      <p className="rounded-lg bg-stone-50 px-4 py-2 text-xs text-stone-600">
+        💡 每張圖右上角「×」可刪除。不滿意刪掉後按下方「重新生成」會用原 prompt 再跑一輪。確認後「下載 xlsx」才會封檔。
+      </p>
+
+      <div className="space-y-5">
+        {Object.entries(byTheme).map(([themeName, imgs]) => {
+          const okCount = imgs.filter((i) => i.status === 'success').length;
+          return (
+            <div key={themeName}>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-stone-800">
+                  {themeName}
+                </h3>
+                <span className="text-xs text-stone-500">
+                  {okCount}/{imgs.length} 保留
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+                {imgs.map((img) => (
+                  <ImageTile key={img.id} img={img} onDelete={onDelete} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 pt-4">
+        <div className="text-xs text-stone-500">
+          {deleted > 0
+            ? `${deleted} 張被刪除,可重新生成或直接下載 (留空 AI圖 欄)`
+            : '可以直接下載最終版'}
+        </div>
+        <div className="flex gap-2">
+          {deleted > 0 && (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              disabled={regenerating}
+              className="rounded-lg border border-purple-300 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+            >
+              {regenerating ? '🔄 重新生成中…' : `🔄 重新生成 ${deleted} 張`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={regenerating}
+            className="btn-primary"
+          >
+            ✓ 確定下載 xlsx
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

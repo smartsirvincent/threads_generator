@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { listProfiles, getProfile, saveProfile, deleteProfile, getLastUsedName } from '@/lib/profile-store.js';
 
 const ALL_PLATFORMS = ['Threads', 'IG', 'FB'];
 
@@ -41,6 +42,46 @@ export default function Step1Form({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [profiles, setProfiles] = useState([]);
+
+  useEffect(() => {
+    setProfiles(listProfiles());
+  }, []);
+
+  function refreshProfiles() {
+    setProfiles(listProfiles());
+  }
+
+  function handleSaveProfile() {
+    const defaultName = input.brand || getLastUsedName() || '我的設定';
+    const name = window.prompt('儲存當前設定為:', defaultName)?.trim();
+    if (!name) return;
+    if (profiles.includes(name) && !window.confirm(`「${name}」已存在，覆蓋嗎？`)) return;
+    saveProfile(name, input);
+    refreshProfiles();
+  }
+
+  function handleLoadProfile(name) {
+    if (!name) return;
+    const p = getProfile(name);
+    if (!p) return;
+    // 保留 dry_run / generate_images,其餘從存檔覆蓋
+    setInput((s) => ({
+      ...s,
+      ...p,
+      dry_run: s.dry_run,
+      generate_images: s.generate_images,
+      products: Array.isArray(p.products) && p.products.length > 0
+        ? p.products
+        : s.products,
+    }));
+  }
+
+  function handleDeleteProfile(name) {
+    if (!window.confirm(`刪除「${name}」？此操作無法復原`)) return;
+    deleteProfile(name);
+    refreshProfiles();
+  }
 
   function update(field, value) {
     setInput((s) => ({ ...s, [field]: value }));
@@ -117,10 +158,10 @@ export default function Step1Form({
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* ===== 品牌設定 ===== */}
       <div className="card space-y-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-stone-900">品牌設定</h2>
-          <div className="flex gap-2 text-xs">
-            <span className="text-stone-500">載入範例:</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-stone-500">範例:</span>
             {Object.keys({ '87 烤魚': 1, Infuz: 1, 瑞際: 1 }).map((name) => (
               <button
                 key={name}
@@ -131,6 +172,51 @@ export default function Step1Form({
                 {name}
               </button>
             ))}
+            <span className="mx-1 text-stone-300">|</span>
+            <span className="text-stone-500">我的設定:</span>
+            {profiles.length === 0 ? (
+              <span className="text-stone-400">(尚未存)</span>
+            ) : (
+              <select
+                onChange={(e) => { handleLoadProfile(e.target.value); e.target.value = ''; }}
+                defaultValue=""
+                className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-700"
+              >
+                <option value="" disabled>載入存檔…</option>
+                {profiles.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveProfile}
+              className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
+              title="儲存當前設定到瀏覽器"
+            >
+              💾 儲存
+            </button>
+            {profiles.length > 0 && (
+              <details className="relative">
+                <summary className="cursor-pointer rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">
+                  管理
+                </summary>
+                <ul className="absolute right-0 z-10 mt-1 w-44 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
+                  {profiles.map((n) => (
+                    <li key={n} className="flex items-center justify-between gap-1 text-xs">
+                      <span className="truncate text-stone-700">{n}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProfile(n)}
+                        className="rounded-md px-1.5 py-0.5 text-red-600 hover:bg-red-50"
+                      >
+                        🗑
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         </div>
 
