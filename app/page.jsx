@@ -5,7 +5,7 @@ export default function Landing() {
     <main className="space-y-10">
       <section className="text-center">
         <h1 className="text-3xl font-semibold text-stone-900 sm:text-4xl">
-          文案產生器
+          FUN AI社群規劃器
         </h1>
         <p className="mx-auto mt-3 max-w-xl text-sm text-stone-500">
           兩個獨立功能 — 文案與圖片各自獨立規劃，自由組合
@@ -32,10 +32,10 @@ export default function Landing() {
           accent="purple"
           emoji="🖼️"
           title="圖片規劃"
-          desc="輸入品牌 + 多 SKU → AI 推薦 5–8 個圖片主題（特寫/情境/風格化/電商促銷…）→ KIE 批次生圖"
+          desc="輸入品牌 + 多 SKU → AI 推薦 5–8 個圖片主題（特寫/情境/風格化/電商促銷…）→ AI 批次生圖"
           bullets={[
             '推薦多元視覺風格（情境/人物/產品/電商促銷）',
-            'KIE GPT Image 2 並行生圖 + Cloudinary 永久 URL',
+            'AI 並行生圖 + 永久 URL',
             '輸出豐富設計計畫表（人物/環境/光影/排版…）',
             '~$0.04 / 張、並行 4',
           ]}

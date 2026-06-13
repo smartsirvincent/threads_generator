@@ -127,7 +127,7 @@ export default function Step1Form({
 
   async function handleSaveCloud() {
     const defaultName = input.brand || '我的設定';
-    const name = window.prompt('儲存到雲端 (Cloudinary),名稱:', defaultName)?.trim();
+    const name = window.prompt('儲存到雲端,名稱:', defaultName)?.trim();
     if (!name) return;
     setCloudBusy(true);
     setCloudError('');
@@ -375,7 +375,7 @@ export default function Step1Form({
 
             {/* 雲端 */}
             <div className="space-y-1">
-              <div className="font-medium text-stone-600">☁️ 雲端（Cloudinary，跨裝置）</div>
+              <div className="font-medium text-stone-600">☁️ 雲端（跨裝置）</div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -783,7 +783,7 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
             />
           </div>
           <div>
-            <label className="label text-xs">產品圖 URL（KIE 圖片生成參考用）</label>
+            <label className="label text-xs">產品圖 URL（AI 生圖參考用）</label>
             <div className="space-y-1.5">
               {(product.images || ['']).map((img, i) => (
                 <div key={i} className="flex gap-2">

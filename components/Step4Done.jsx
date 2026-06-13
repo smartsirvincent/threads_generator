@@ -47,7 +47,7 @@ export default function Step4Done({ input, themes, result, onReset }) {
         </div>
         {result.download_url && (
           <p className="mt-2 text-xs text-stone-500">
-            ☁️ 存於 Cloudinary,永久有效
+            ☁️ 雲端永久有效
           </p>
         )}
       </div>
