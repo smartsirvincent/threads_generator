@@ -256,7 +256,6 @@ function Step1Product({
               promo_offer: prod.promo_offer || '',
               image_focus: prod.image_focus || '',
             });
-            // 若 SKU 有 images 自動帶第一張當 URL (不上傳檔案模式)
             if (Array.isArray(prod.images) && prod.images[0]) {
               setProductPhotoUrl(prod.images[0]);
               setProductPhotoPreview(prod.images[0]);
@@ -268,6 +267,12 @@ function Step1Product({
               brand_persona: profile.brand_persona || '',
               audience: profile.audience || '',
             });
+            // 帶入品牌 LOGO 並預設「合成到圖片中」
+            if (Array.isArray(profile.brand_logos) && profile.brand_logos[0]) {
+              setLogoUrl(profile.brand_logos[0]);
+              setLogoPreview(profile.brand_logos[0]);
+              setUseLogo(true);
+            }
           }
         }}
       />
@@ -695,6 +700,26 @@ const RATIO_INFO = {
 };
 
 function Step4Results({ results, productPhotoPreview, picked, onReset }) {
+  const [copyStatus, setCopyStatus] = useState('');
+
+  // 組合完整的「貼文文案」: 主標 + 副標 + 文案
+  const fullCopy = [
+    picked.title,
+    picked.subtitle,
+    '',
+    picked.copy,
+  ].filter((s) => s && s.trim()).join('\n');
+
+  async function handleCopy(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus(label);
+      setTimeout(() => setCopyStatus(''), 1500);
+    } catch (_) {
+      setCopyStatus('複製失敗');
+    }
+  }
+
   return (
     <>
       <div className="card">
@@ -704,22 +729,80 @@ function Step4Results({ results, productPhotoPreview, picked, onReset }) {
             重新開始
           </button>
         </div>
-        {productPhotoPreview && (
-          <div className="mt-3 flex items-center gap-3 rounded-lg bg-stone-50 p-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={productPhotoPreview} alt="ref" className="size-16 rounded-md object-cover" />
-            <div className="text-xs">
-              <div className="text-stone-500">標題:</div>
-              <div className="font-medium text-stone-800">{picked.title}</div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {results.map((r, i) => (
           <ResultCard key={i} result={r} />
         ))}
+      </div>
+
+      {/* ===== 完整文案區 ===== */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-stone-800">📝 貼文文案（可直接複製使用）</h3>
+          {copyStatus && <span className="text-xs text-emerald-600">{copyStatus}</span>}
+        </div>
+
+        <div className="space-y-3 rounded-lg bg-stone-50 p-4">
+          {picked.title && (
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wide text-stone-400">主標題</div>
+                <div className="text-sm font-bold text-stone-900">{picked.title}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(picked.title, '✓ 主標已複製')}
+                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
+              >
+                複製
+              </button>
+            </div>
+          )}
+
+          {picked.subtitle && (
+            <div className="flex items-start justify-between gap-3 border-t border-stone-200 pt-3">
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wide text-stone-400">副標</div>
+                <div className="text-sm text-stone-800">{picked.subtitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(picked.subtitle, '✓ 副標已複製')}
+                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
+              >
+                複製
+              </button>
+            </div>
+          )}
+
+          {picked.copy && (
+            <div className="flex items-start justify-between gap-3 border-t border-stone-200 pt-3">
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wide text-stone-400">完整文案</div>
+                <pre className="whitespace-pre-wrap font-sans text-sm text-stone-800">{picked.copy}</pre>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(picked.copy, '✓ 文案已複製')}
+                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
+              >
+                複製
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => handleCopy(fullCopy, '✓ 全部已複製')}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+          >
+            📋 一次複製全部 (主標 + 副標 + 文案)
+          </button>
+        </div>
       </div>
     </>
   );

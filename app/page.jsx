@@ -1,18 +1,16 @@
 import Link from 'next/link';
-import Logo from '@/components/Logo';
 
 export default function Landing() {
   return (
     <main className="space-y-12">
       {/* ===== Hero ===== */}
       <section className="text-center">
-        <div className="mx-auto mb-6 flex size-24 items-center justify-center sm:size-32">
-          <Logo className="size-full object-contain" />
-        </div>
-        <h1 className="text-3xl font-semibold text-stone-900 sm:text-4xl">
-          FUN AI 社群規劃器
+        <h1 className="flex items-baseline justify-center gap-2 text-5xl font-bold tracking-tight sm:text-6xl">
+          <span className="text-stone-900">FUN</span>
+          <span className="bg-gradient-to-r from-brand-500 to-purple-500 bg-clip-text text-transparent">AI</span>
+          <span className="text-2xl font-medium text-stone-500 sm:text-3xl">系統</span>
         </h1>
-        <p className="mx-auto mt-3 max-w-xl text-sm text-stone-500 sm:text-base">
+        <p className="mx-auto mt-4 max-w-xl text-sm text-stone-500 sm:text-base">
           三個獨立功能 — 文字貼文 / 圖片貼文 / 素材產生，自由組合
         </p>
       </section>
