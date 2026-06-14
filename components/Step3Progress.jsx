@@ -696,6 +696,9 @@ function buildImagePrompt(post, input, product, theme) {
     ? `STRICT NEGATIVE — must NOT appear (including variations / synonyms / implications): ${avoidArr.join(', ')}.`
     : '';
 
+  // 嚴格保留產品原貌
+  const fidelityInstr = 'CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging, label artwork, and any visible logos or text printed on the product. Do NOT recolor, redesign, or alter the product in any way. Only the background/composition/style around it may change.';
+
   return [
     product?.name && `SKU: ${product.name}`,
     keywords,
@@ -704,6 +707,7 @@ function buildImagePrompt(post, input, product, theme) {
     `Brand vibe: ${input.brand}, ${persona.slice(0, 60)}`,
     styleInstr,
     focusInstr,
+    fidelityInstr,
     logoInstr,
     avoidInstr,
     'Photorealistic, social media post style, vibrant lighting',

@@ -48,6 +48,9 @@ function buildProductPrompt({ product, title, subtitle, copy, brand, brand_perso
     parts.push('STRICT: NO brand logo, NO brand name as text, NO invented logos in the image.');
   }
 
+  // ===== 嚴格保留產品原貌 (對所有 mode 都強制) =====
+  parts.push('CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging design, label artwork, and any visible logos or text printed ON the product itself. Do NOT recolor the product. Do NOT redesign the packaging. Do NOT alter, hallucinate, or remove any branding, labels, or product markings. The product must look identical to the reference, only the background/composition/style around it should change.');
+
   parts.push('Photorealistic, high quality, social media ready, vibrant lighting, conversion-focused composition.');
   return parts.join(' ');
 }
