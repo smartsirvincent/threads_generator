@@ -16,8 +16,9 @@ export default function RootLayout({ children }) {
               FUN AI社群規劃器
             </a>
             <nav className="flex items-center gap-3 text-sm sm:gap-4">
-              <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文案</a>
-              <a href="/image-plan" className="text-stone-500 hover:text-stone-900">🖼️ 圖片</a>
+              <a href="/text" className="text-stone-500 hover:text-stone-900">📝 文字貼文</a>
+              <a href="/image-plan" className="text-stone-500 hover:text-stone-900">🖼️ 圖片貼文</a>
+              <a href="/material" className="text-stone-500 hover:text-stone-900">✨ 素材產生</a>
             </nav>
           </header>
           {children}
