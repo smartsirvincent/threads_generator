@@ -49,7 +49,10 @@ function buildProductPrompt({ product, title, subtitle, copy, brand, brand_perso
   }
 
   // ===== 嚴格保留產品原貌 (對所有 mode 都強制) =====
-  parts.push('CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging design, label artwork, and any visible logos or text printed ON the product itself. Do NOT recolor the product. Do NOT redesign the packaging. Do NOT alter, hallucinate, or remove any branding, labels, or product markings. The product must look identical to the reference, only the background/composition/style around it should change.');
+  parts.push('CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging design, label artwork, and any visible logos or text printed ON the product itself. Do NOT recolor the product. Do NOT alter, hallucinate, or remove any branding, labels, or product markings. The product must look identical to the reference, only the background/composition/style around it should change.');
+
+  // ===== 最強制:絕對禁止新包裝 (這條是 hard rule,不可違反) =====
+  parts.push('ABSOLUTELY FORBIDDEN — HARD RULE: Under NO circumstances may you invent, redesign, replace, modify, or stylize the product packaging. The packaging in the output image MUST be pixel-faithful to the reference. Do NOT create new packaging variants. Do NOT redraw labels. Do NOT swap container shapes. If you cannot keep the packaging identical, output the product as-is from the reference rather than imagining a new one. This rule overrides any other creative direction.');
 
   parts.push('Photorealistic, high quality, social media ready, vibrant lighting, conversion-focused composition.');
   return parts.join(' ');

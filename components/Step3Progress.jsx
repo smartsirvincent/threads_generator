@@ -697,7 +697,10 @@ function buildImagePrompt(post, input, product, theme) {
     : '';
 
   // 嚴格保留產品原貌
-  const fidelityInstr = 'CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging, label artwork, and any visible logos or text printed on the product. Do NOT recolor, redesign, or alter the product in any way. Only the background/composition/style around it may change.';
+  const fidelityInstr = 'CRITICAL PRODUCT FIDELITY: Preserve the EXACT original colors, shape, packaging, label artwork, and any visible logos or text printed on the product. Do NOT recolor, alter, or restyle the product in any way. Only the background/composition/style around it may change.';
+
+  // 最強制:絕對禁止新包裝 (hard rule)
+  const noNewPackagingInstr = 'ABSOLUTELY FORBIDDEN — HARD RULE: Under NO circumstances may you invent, redesign, replace, modify, or stylize the product packaging. The packaging in the output image MUST be pixel-faithful to the reference. Do NOT create new packaging variants. Do NOT redraw labels. Do NOT swap container shapes. If you cannot keep the packaging identical, output the product as-is from the reference rather than imagining a new one. This rule overrides any other creative direction.';
 
   return [
     product?.name && `SKU: ${product.name}`,
@@ -708,6 +711,7 @@ function buildImagePrompt(post, input, product, theme) {
     styleInstr,
     focusInstr,
     fidelityInstr,
+    noNewPackagingInstr,
     logoInstr,
     avoidInstr,
     'Photorealistic, social media post style, vibrant lighting',
