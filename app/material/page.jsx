@@ -1,164 +1,596 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { listProfiles, getProfile, getCloudIndex } from '@/lib/profile-store.js';
 
 export default function MaterialPage() {
-  const [phase, setPhase] = useState('upload'); // upload | generating | done | error
-  const [refPreview, setRefPreview] = useState(null);
-  const [refUrl, setRefUrl] = useState(null);
+  const [step, setStep] = useState(1);
+  const [product, setProduct] = useState(initialProduct());
+  const [brandContext, setBrandContext] = useState({ brand: '', brand_persona: '', audience: '' });
+  const [productPhotoUrl, setProductPhotoUrl] = useState(null); // 上傳後拿到的 Cloudinary URL
+  const [productPhotoPreview, setProductPhotoPreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState({ titles: [], subtitle: '', copy: '' });
+  const [picked, setPicked] = useState({ title: '', subtitle: '', copy: '' });
   const [extraPrompt, setExtraPrompt] = useState('');
+
+  const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState([]);
   const [error, setError] = useState('');
-
-  async function handleFile(file) {
-    if (!file) return;
-    if (!/image\/(png|jpe?g|webp|gif)/.test(file.type)) {
-      setError('請上傳 PNG / JPG / WEBP 圖片');
-      return;
-    }
-    setError('');
-
-    // 本機預覽
-    const reader = new FileReader();
-    reader.onload = () => setRefPreview(reader.result);
-    reader.readAsDataURL(file);
-
-    // 上傳到雲端拿 URL
-    setPhase('generating');
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const upRes = await fetch('/api/material/upload-ref', { method: 'POST', body: form });
-      const upData = await upRes.json();
-      if (!upRes.ok) throw new Error(upData.error || `上傳失敗 HTTP ${upRes.status}`);
-      setRefUrl(upData.url);
-
-      // 觸發 3 並行生成
-      const genRes = await fetch('/api/material/generate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ refUrl: upData.url, extraPrompt }),
-      });
-      const genData = await genRes.json();
-      if (!genRes.ok) throw new Error(genData.error || `生成失敗 HTTP ${genRes.status}`);
-      setResults(genData.results || []);
-      setPhase('done');
-    } catch (e) {
-      setError(e.message);
-      setPhase('error');
-    }
-  }
-
-  function reset() {
-    setPhase('upload');
-    setRefPreview(null);
-    setRefUrl(null);
-    setResults([]);
-    setError('');
-  }
 
   return (
     <main className="space-y-6">
       <div className="card">
         <h1 className="text-2xl font-semibold text-stone-900">✨ 素材產生器</h1>
         <p className="mt-2 text-sm text-stone-600">
-          上傳 1 張參考圖 → AI 模仿視覺風格 → 同時輸出 <strong>1:1 / 9:16 / 1.91:1</strong> 三種比例。
-          適用 IG 動態 / Reels / Stories / FB 廣告。
-        </p>
-        <p className="mt-1 text-xs text-stone-500">
-          ⏱ 預估 ~1.5 分鐘 · 💰 ~$0.12 USD
+          選產品 → AI 出標題 + 文案 → 一次生成 <strong>1:1 / 9:16 / 1.91:1</strong> 三種比例素材
         </p>
       </div>
 
-      {phase === 'upload' && (
-        <>
-          <div className="card">
-            <label className="label">
-              額外指示（選填）
-              <span className="ml-1 font-normal text-stone-500">— 例：「加上一些柔光」「換成黃昏色調」「移除人物」</span>
-            </label>
-            <textarea
-              className="input min-h-[70px] text-sm"
-              value={extraPrompt}
-              onChange={(e) => setExtraPrompt(e.target.value)}
-              placeholder="留空就純模仿風格;有特殊要求可寫"
-            />
-          </div>
+      <Stepper current={step} />
 
-          <label
-            className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-stone-300 bg-white py-16 text-center transition hover:border-emerald-300 hover:bg-emerald-50/30"
-          >
-            <span className="text-5xl">🖼️</span>
-            <span className="text-base font-medium text-stone-700">
-              點擊或拖拉參考圖到這裡
-            </span>
-            <span className="text-xs text-stone-500">
-              支援 PNG / JPG / WEBP · 系統會自動模仿其風格
-            </span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              className="hidden"
-              onChange={(e) => handleFile(e.target.files?.[0])}
-            />
-          </label>
-        </>
+      {step === 1 && (
+        <Step1Product
+          product={product} setProduct={setProduct}
+          brandContext={brandContext} setBrandContext={setBrandContext}
+          productPhotoUrl={productPhotoUrl} setProductPhotoUrl={setProductPhotoUrl}
+          productPhotoPreview={productPhotoPreview} setProductPhotoPreview={setProductPhotoPreview}
+          uploading={uploading} setUploading={setUploading}
+          error={error} setError={setError}
+          onNext={async () => {
+            if (!product.name?.trim()) { setError('請至少填寫產品名稱'); return; }
+            if (!productPhotoUrl) { setError('請上傳產品照片'); return; }
+            setError('');
+            setSuggesting(true);
+            try {
+              const res = await fetch('/api/material/suggest', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ product, ...brandContext }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+              setSuggestions(data);
+              setPicked({ title: data.titles?.[0] || '', subtitle: data.subtitle || '', copy: data.copy || '' });
+              setStep(2);
+            } catch (e) {
+              setError('產生建議失敗:' + e.message);
+            } finally {
+              setSuggesting(false);
+            }
+          }}
+          loading={suggesting}
+        />
       )}
 
-      {phase === 'generating' && (
-        <div className="card space-y-4 text-center">
-          {refPreview && (
+      {step === 2 && (
+        <Step2Suggest
+          suggestions={suggestions} picked={picked} setPicked={setPicked}
+          extraPrompt={extraPrompt} setExtraPrompt={setExtraPrompt}
+          onBack={() => setStep(1)}
+          onRegen={async () => {
+            setSuggesting(true);
+            try {
+              const res = await fetch('/api/material/suggest', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ product, ...brandContext }),
+              });
+              const data = await res.json();
+              if (res.ok) {
+                setSuggestions(data);
+                setPicked({ title: data.titles?.[0] || '', subtitle: data.subtitle || '', copy: data.copy || '' });
+              }
+            } finally { setSuggesting(false); }
+          }}
+          regenerating={suggesting}
+          onNext={async () => {
+            setStep(3);
+            setGenerating(true);
+            setError('');
+            try {
+              const res = await fetch('/api/material/generate', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  refUrl: productPhotoUrl,
+                  product,
+                  title: picked.title,
+                  subtitle: picked.subtitle,
+                  copy: picked.copy,
+                  brand: brandContext.brand,
+                  brand_persona: brandContext.brand_persona,
+                  refMode: 'product_only',
+                  extraPrompt,
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+              setResults(data.results || []);
+              setStep(4);
+            } catch (e) {
+              setError(e.message);
+              setStep(2);
+            } finally { setGenerating(false); }
+          }}
+        />
+      )}
+
+      {step === 3 && (
+        <div className="card text-center">
+          {productPhotoPreview && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={refPreview} alt="reference" className="mx-auto max-h-64 rounded-lg" />
+            <img src={productPhotoPreview} alt="product" className="mx-auto mb-4 max-h-48 rounded-lg" />
           )}
-          <p className="text-stone-700">🎨 AI 模仿風格中，三種比例並行生成…</p>
-          <p className="text-xs text-stone-500">通常 60–90 秒，請稍候</p>
+          <p className="text-lg text-stone-700">🎨 並行生成 3 種比例素材中…</p>
+          <p className="mt-1 text-xs text-stone-500">通常 60-90 秒</p>
         </div>
       )}
 
-      {phase === 'done' && (
-        <>
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-stone-900">🎉 三種比例已產出</h2>
-              <button onClick={reset} className="text-sm text-stone-500 hover:text-stone-900">
-                重新上傳
-              </button>
-            </div>
-            {refPreview && (
-              <div className="mt-3 flex items-center gap-3 rounded-lg bg-stone-50 p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={refPreview} alt="ref" className="size-16 rounded-md object-cover" />
-                <span className="text-xs text-stone-500">原始參考圖</span>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {results.map((r, i) => (
-              <ResultCard key={i} result={r} />
-            ))}
-          </div>
-        </>
+      {step === 4 && (
+        <Step4Results
+          results={results}
+          productPhotoPreview={productPhotoPreview}
+          picked={picked}
+          onReset={() => {
+            setStep(1);
+            setResults([]);
+            setSuggestions({ titles: [], subtitle: '', copy: '' });
+            setPicked({ title: '', subtitle: '', copy: '' });
+            setError('');
+          }}
+        />
       )}
 
-      {phase === 'error' && (
-        <div className="card border-red-200 bg-red-50">
-          <p className="text-sm text-red-700">❌ {error}</p>
-          <button onClick={reset} className="mt-3 btn-secondary text-xs">
-            重試
-          </button>
+      {error && step !== 1 && step !== 2 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          ❌ {error}
         </div>
       )}
     </main>
   );
 }
 
+function initialProduct() {
+  return {
+    name: '', features: '', promo_offer: '', image_focus: '',
+  };
+}
+
+const STEPS = [
+  { n: 1, label: '產品設定' },
+  { n: 2, label: '標題+文案' },
+  { n: 3, label: '生成中' },
+  { n: 4, label: '完成' },
+];
+
+function Stepper({ current }) {
+  return (
+    <ol className="flex items-center gap-2">
+      {STEPS.map((s, i) => {
+        const active = current === s.n;
+        const done = current > s.n;
+        return (
+          <li key={s.n} className="flex flex-1 items-center gap-2">
+            <div className={`flex size-7 items-center justify-center rounded-full text-xs font-semibold ${
+              done ? 'bg-emerald-500 text-white'
+                   : active ? 'bg-stone-900 text-white'
+                            : 'bg-stone-200 text-stone-500'}`}>
+              {done ? '✓' : s.n}
+            </div>
+            <span className={`text-sm ${active ? 'font-medium text-stone-900' : 'text-stone-500'}`}>
+              {s.label}
+            </span>
+            {i < STEPS.length - 1 && (
+              <div className={`mx-2 h-px flex-1 ${done ? 'bg-emerald-500' : 'bg-stone-200'}`} />
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// ============== Step 1: 產品設定 ==============
+
+function Step1Product({
+  product, setProduct, brandContext, setBrandContext,
+  productPhotoUrl, setProductPhotoUrl, productPhotoPreview, setProductPhotoPreview,
+  uploading, setUploading, error, setError,
+  onNext, loading,
+}) {
+  return (
+    <div className="space-y-4">
+      <ProductLoader
+        onApply={(profile, prod) => {
+          if (prod) {
+            setProduct({
+              name: prod.name || '',
+              features: prod.features || '',
+              promo_offer: prod.promo_offer || '',
+              image_focus: prod.image_focus || '',
+            });
+            // 若 SKU 有 images 自動帶第一張當 URL (不上傳檔案模式)
+            if (Array.isArray(prod.images) && prod.images[0]) {
+              setProductPhotoUrl(prod.images[0]);
+              setProductPhotoPreview(prod.images[0]);
+            }
+          }
+          if (profile) {
+            setBrandContext({
+              brand: profile.brand || '',
+              brand_persona: profile.brand_persona || '',
+              audience: profile.audience || '',
+            });
+          }
+        }}
+      />
+
+      <div className="card space-y-4">
+        <h2 className="text-lg font-semibold text-stone-900">產品資訊（手動填寫或從上方載入）</h2>
+
+        <div>
+          <label className="label">產品名稱 *</label>
+          <input
+            className="input"
+            value={product.name}
+            onChange={(e) => setProduct({ ...product, name: e.target.value })}
+            placeholder="例：金湯酸菜烤魚火鍋"
+          />
+        </div>
+
+        <div>
+          <label className="label">產品特色 / 賣點</label>
+          <textarea
+            className="input min-h-[80px] text-sm"
+            value={product.features}
+            onChange={(e) => setProduct({ ...product, features: e.target.value })}
+            placeholder="一段話描述主要賣點"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="label">優惠/活動（選填）</label>
+            <input
+              className="input"
+              value={product.promo_offer}
+              onChange={(e) => setProduct({ ...product, promo_offer: e.target.value })}
+              placeholder="例：買 2 送 1 / 中秋限定 7 折"
+            />
+          </div>
+          <div>
+            <label className="label">視覺方向（選填）</label>
+            <input
+              className="input"
+              value={product.image_focus}
+              onChange={(e) => setProduct({ ...product, image_focus: e.target.value })}
+              placeholder="例：強調熱氣、夜店感、北歐極簡"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="label">產品照片 * <span className="text-xs font-normal text-stone-500">（上傳一張產品實拍照,AI 會以它為主體生新圖）</span></label>
+          <ProductPhotoUploader
+            url={productPhotoUrl}
+            preview={productPhotoPreview}
+            uploading={uploading}
+            onPick={async (file) => {
+              setError('');
+              if (!file) return;
+              setUploading(true);
+              const reader = new FileReader();
+              reader.onload = () => setProductPhotoPreview(reader.result);
+              reader.readAsDataURL(file);
+              try {
+                const form = new FormData();
+                form.append('file', file);
+                const res = await fetch('/api/material/upload-ref', { method: 'POST', body: form });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                setProductPhotoUrl(data.url);
+              } catch (e) {
+                setError('上傳失敗:' + e.message);
+              } finally {
+                setUploading(false);
+              }
+            }}
+            onClear={() => {
+              setProductPhotoUrl(null);
+              setProductPhotoPreview(null);
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="card space-y-3">
+        <h3 className="text-sm font-medium text-stone-700">品牌背景（選填,讓文案更貼合）</h3>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="label text-xs">品牌名</label>
+            <input className="input" value={brandContext.brand} onChange={(e) => setBrandContext({ ...brandContext, brand: e.target.value })} placeholder="例:87 烤魚" />
+          </div>
+          <div>
+            <label className="label text-xs">品牌人格</label>
+            <input className="input" value={brandContext.brand_persona} onChange={(e) => setBrandContext({ ...brandContext, brand_persona: e.target.value })} placeholder="霸氣台味/知性療癒…" />
+          </div>
+          <div>
+            <label className="label text-xs">受眾</label>
+            <input className="input" value={brandContext.audience} onChange={(e) => setBrandContext({ ...brandContext, audience: e.target.value })} placeholder="25-40 上班族…" />
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
+      )}
+
+      <div className="flex justify-end">
+        <button type="button" onClick={onNext} disabled={loading || uploading} className="btn-primary">
+          {loading ? '🔮 生成建議中…' : '下一步:AI 出標題+文案 →'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProductPhotoUploader({ url, preview, uploading, onPick, onClear }) {
+  if (preview) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={preview} alt="product" className="size-24 rounded-md object-cover" />
+        <div className="flex-1">
+          <div className="text-xs text-stone-600">{url ? '✓ 已上傳' : uploading ? '上傳中…' : '本機預覽'}</div>
+          {url && <div className="mt-1 break-all text-[10px] text-stone-400">{url.slice(0, 80)}…</div>}
+        </div>
+        <button type="button" onClick={onClear} className="text-sm text-stone-500 hover:text-red-600">移除</button>
+      </div>
+    );
+  }
+  return (
+    <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone-300 bg-white py-8 text-center hover:border-emerald-300 hover:bg-emerald-50/30">
+      <span className="text-3xl">📷</span>
+      <span className="text-sm text-stone-600">點擊或拖拉上傳產品照</span>
+      <input
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(e) => onPick(e.target.files?.[0])}
+      />
+    </label>
+  );
+}
+
+// ============== 產品載入器 ==============
+
+function ProductLoader({ onApply }) {
+  const [localProfiles, setLocalProfiles] = useState([]);
+  const [cloudProfiles, setCloudProfiles] = useState([]);
+  const [selectedProfileName, setSelectedProfileName] = useState('');
+  const [loadedProfile, setLoadedProfile] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setLocalProfiles(listProfiles());
+    setCloudProfiles(getCloudIndex());
+    // 也抓 server cloud list
+    (async () => {
+      try {
+        const res = await fetch('/api/profiles/list', { cache: 'no-store' });
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.profiles)) {
+          // merge with localStorage cloud index
+          const map = new Map();
+          for (const p of getCloudIndex()) map.set(p.publicId, p);
+          for (const p of data.profiles) map.set(p.publicId, p);
+          setCloudProfiles(Array.from(map.values()));
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  async function handleLoad() {
+    if (!selectedProfileName) return;
+    setBusy(true);
+    let profileData = null;
+    try {
+      if (selectedProfileName.startsWith('local:')) {
+        profileData = getProfile(selectedProfileName.slice(6));
+      } else if (selectedProfileName.startsWith('cloud:')) {
+        const publicId = selectedProfileName.slice(6);
+        const cp = cloudProfiles.find((p) => p.publicId === publicId);
+        if (cp?.url) {
+          const r = await fetch(cp.url, { cache: 'no-store' });
+          if (r.ok) {
+            const wrapper = await r.json();
+            profileData = wrapper.profile || wrapper;
+          }
+        }
+      }
+      setLoadedProfile(profileData);
+    } finally { setBusy(false); }
+  }
+
+  if (localProfiles.length === 0 && cloudProfiles.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="card space-y-3 border-emerald-200 bg-emerald-50/40">
+      <h2 className="text-sm font-medium text-emerald-900">📋 從既有品牌設定載入產品（選填）</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={selectedProfileName}
+          onChange={(e) => { setSelectedProfileName(e.target.value); setLoadedProfile(null); }}
+          className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-sm"
+        >
+          <option value="">選擇存檔…</option>
+          {localProfiles.length > 0 && (
+            <optgroup label="💾 本機">
+              {localProfiles.map((n) => <option key={`l-${n}`} value={`local:${n}`}>{n}</option>)}
+            </optgroup>
+          )}
+          {cloudProfiles.length > 0 && (
+            <optgroup label="☁️ 雲端">
+              {cloudProfiles.map((p) => <option key={`c-${p.publicId}`} value={`cloud:${p.publicId}`}>{p.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+        <button
+          type="button"
+          disabled={!selectedProfileName || busy}
+          onClick={handleLoad}
+          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {busy ? '載入中…' : '載入設定'}
+        </button>
+      </div>
+
+      {loadedProfile && (
+        <div className="space-y-2 rounded-lg border border-emerald-200 bg-white p-3">
+          <div className="text-xs text-stone-500">
+            品牌:<strong className="ml-1 text-stone-800">{loadedProfile.brand || '(未填)'}</strong>
+            <span className="ml-2">人格:{loadedProfile.brand_persona?.slice(0, 30) || '(未填)'}…</span>
+          </div>
+          <div className="text-xs font-medium text-stone-700">點選一個 SKU 帶入:</div>
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {(loadedProfile.products || []).map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onApply(loadedProfile, p)}
+                className="flex items-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 py-1.5 text-left text-xs hover:bg-emerald-50 hover:border-emerald-300"
+              >
+                {Array.isArray(p.images) && p.images[0] && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.images[0]} alt={p.name} className="size-10 rounded object-cover" />
+                )}
+                <span className="flex-1 truncate text-stone-800">{p.name}</span>
+              </button>
+            ))}
+          </div>
+          {(loadedProfile.products || []).length === 0 && (
+            <div className="text-xs text-stone-500">此存檔沒有 SKU</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============== Step 2: 建議 ==============
+
+function Step2Suggest({ suggestions, picked, setPicked, extraPrompt, setExtraPrompt, onBack, onRegen, regenerating, onNext }) {
+  return (
+    <div className="space-y-4">
+      <div className="card space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-stone-900">AI 標題建議（選一個或自訂）</h2>
+          <button type="button" onClick={onRegen} disabled={regenerating}
+            className="text-xs text-stone-500 hover:text-emerald-600 disabled:opacity-50">
+            {regenerating ? '重新生成中…' : '🔄 重新生成'}
+          </button>
+        </div>
+        <div className="space-y-2">
+          {(suggestions.titles || []).map((t, i) => (
+            <label key={i} className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 ${picked.title === t ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 hover:bg-stone-50'}`}>
+              <input
+                type="radio"
+                name="title"
+                checked={picked.title === t}
+                onChange={() => setPicked({ ...picked, title: t })}
+                className="size-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-stone-800">{t}</span>
+            </label>
+          ))}
+        </div>
+
+        <div>
+          <label className="label">主標題 (可改)</label>
+          <input
+            className="input"
+            value={picked.title}
+            onChange={(e) => setPicked({ ...picked, title: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label className="label">副標 (可改)</label>
+          <input
+            className="input"
+            value={picked.subtitle}
+            onChange={(e) => setPicked({ ...picked, subtitle: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label className="label">文案 (可改)</label>
+          <textarea
+            className="input min-h-[120px] text-sm"
+            value={picked.copy}
+            onChange={(e) => setPicked({ ...picked, copy: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label className="label text-xs">額外視覺指示（選填,例:「加上柔光」「換成黃昏色調」）</label>
+          <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={onBack} className="btn-secondary">← 上一步</button>
+        <button type="button" onClick={onNext} disabled={!picked.title?.trim()} className="btn-primary">
+          下一步:並行生 3 張 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============== Step 4: 結果 ==============
+
 const RATIO_INFO = {
   '1:1': { label: 'IG 動態 / FB 貼文', hint: '正方形' },
   '9:16': { label: 'Reels / Stories', hint: '直式 9:16' },
   '1.91:1': { label: 'FB 廣告 / IG 橫向', hint: '橫式 1.91:1' },
 };
+
+function Step4Results({ results, productPhotoPreview, picked, onReset }) {
+  return (
+    <>
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-stone-900">🎉 三種比例已產出</h2>
+          <button onClick={onReset} className="text-sm text-stone-500 hover:text-stone-900">
+            重新開始
+          </button>
+        </div>
+        {productPhotoPreview && (
+          <div className="mt-3 flex items-center gap-3 rounded-lg bg-stone-50 p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={productPhotoPreview} alt="ref" className="size-16 rounded-md object-cover" />
+            <div className="text-xs">
+              <div className="text-stone-500">標題:</div>
+              <div className="font-medium text-stone-800">{picked.title}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {results.map((r, i) => (
+          <ResultCard key={i} result={r} />
+        ))}
+      </div>
+    </>
+  );
+}
 
 function ResultCard({ result }) {
   const info = RATIO_INFO[result.target] || {};
@@ -190,13 +622,8 @@ function ResultCard({ result }) {
       </div>
       {!result.error && (
         <div className="border-t border-stone-200 bg-white p-2">
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noreferrer"
-            download
-            className="block rounded-md bg-emerald-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-emerald-700"
-          >
+          <a href={result.url} target="_blank" rel="noreferrer" download
+            className="block rounded-md bg-emerald-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-emerald-700">
             ⬇ 下載
           </a>
         </div>

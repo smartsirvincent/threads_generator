@@ -9,6 +9,40 @@ export const maxDuration = 300;
 
 const STYLE_PROMPT = 'Create a new original image inspired by the visual style of the reference. Maintain the color palette, lighting, mood, composition style, depth of field, and overall aesthetic. Do NOT replicate exact content or specific objects from the reference. Photorealistic, high quality, social media ready.';
 
+/**
+ * 用產品資料 + 選擇的標題/文案 build 更具體的 prompt
+ */
+function buildProductPrompt({ product, title, subtitle, copy, brand, brand_persona, refMode }) {
+  if (!product) return STYLE_PROMPT;
+  const parts = [];
+
+  parts.push(`Create a high-quality social media visual featuring the product: "${product.name}".`);
+  if (product.features) parts.push(`Product key traits: ${product.features.slice(0, 200)}`);
+  if (product.image_focus) parts.push(`Visual emphasis: ${product.image_focus}`);
+  if (product.promo_offer) parts.push(`Promotional context: ${product.promo_offer}`);
+
+  if (title) {
+    parts.push(`Render the main headline "${title}" as bold legible text overlay within the composition (typographically integrated, not floating).`);
+  }
+  if (subtitle) {
+    parts.push(`Render subheadline: "${subtitle}" smaller but readable.`);
+  }
+  if (copy) {
+    parts.push(`Mood reference (do not render as text): ${copy.slice(0, 100)}`);
+  }
+  if (brand) parts.push(`Brand: ${brand}.`);
+  if (brand_persona) parts.push(`Brand vibe: ${brand_persona.slice(0, 60)}.`);
+
+  if (refMode === 'product_only') {
+    parts.push('Use the reference image as the product appearance source. Do not copy its background or composition — design a fresh layout.');
+  } else if (refMode === 'style_ref') {
+    parts.push('Use the reference image purely for visual style (color/lighting/mood). The product itself should be the main focus.');
+  }
+
+  parts.push('Photorealistic, high quality, social media ready, vibrant lighting, conversion-focused composition.');
+  return parts.join(' ');
+}
+
 // target: 用戶看到的尺寸名;kieAr: 餵 KIE V2 的 aspect_ratio;cloudinaryAr: 微調到精確比例(null = 不調)
 // KIE V2 原生支援 1:1, 9:16, 16:9 等;1.91:1 用 16:9 + 微裁切
 const SIZE_MAP = [
@@ -29,12 +63,15 @@ export async function POST(req) {
     if (!hasCloudinary()) {
       return NextResponse.json({ error: '雲端儲存未設定' }, { status: 503 });
     }
-    const { refUrl, extraPrompt } = await req.json();
+    const { refUrl, extraPrompt, product, title, subtitle, copy, brand, brand_persona, refMode } = await req.json();
     if (!refUrl || typeof refUrl !== 'string') {
       return NextResponse.json({ error: 'refUrl required' }, { status: 400 });
     }
 
-    const prompt = extraPrompt ? `${STYLE_PROMPT}\n\nExtra direction: ${extraPrompt}` : STYLE_PROMPT;
+    const basePrompt = product
+      ? buildProductPrompt({ product, title, subtitle, copy, brand, brand_persona, refMode })
+      : STYLE_PROMPT;
+    const prompt = extraPrompt ? `${basePrompt}\n\nExtra direction: ${extraPrompt}` : basePrompt;
 
     // 並行 3 個 KIE V2 call (原生 aspect_ratio,不再走老 endpoint)
     const results = await Promise.all(SIZE_MAP.map(async (spec) => {
