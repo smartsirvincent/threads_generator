@@ -1,7 +1,7 @@
 // 素材產生器:用 KIE 並行生 3 張不同尺寸的素材
 // KIE 原生只支援 1:1 / 3:2 / 2:3,9:16 和 1.91:1 用 Cloudinary 轉換裁切
 import { NextResponse } from 'next/server';
-import { submitImage, pollImage, downloadImage } from '@/lib/kie-image.js';
+import { submitImageV2, pollImageV2, downloadImage } from '@/lib/kie-image.js';
 import { uploadToCloudinary, hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
@@ -9,11 +9,12 @@ export const maxDuration = 300;
 
 const STYLE_PROMPT = 'Create a new original image inspired by the visual style of the reference. Maintain the color palette, lighting, mood, composition style, depth of field, and overall aesthetic. Do NOT replicate exact content or specific objects from the reference. Photorealistic, high quality, social media ready.';
 
-// target: 用戶看到的尺寸名;kieSize: 餵 KIE 的最接近原生尺寸;cloudinaryAr: 套 Cloudinary 裁切到精確比例
+// target: 用戶看到的尺寸名;kieAr: 餵 KIE V2 的 aspect_ratio;cloudinaryAr: 微調到精確比例(null = 不調)
+// KIE V2 原生支援 1:1, 9:16, 16:9 等;1.91:1 用 16:9 + 微裁切
 const SIZE_MAP = [
-  { target: '1:1', kieSize: '1:1', cloudinaryAr: null },              // 1:1 直接用 KIE,不裁切
-  { target: '9:16', kieSize: '2:3', cloudinaryAr: '9:16' },           // 2:3 (0.667) → 9:16 (0.5625) 裁兩側
-  { target: '1.91:1', kieSize: '3:2', cloudinaryAr: '191:100' },      // 3:2 (1.5) → 1.91 (1.91) 裁上下
+  { target: '1:1', kieAr: '1:1', cloudinaryAr: null },                // 1:1 原生
+  { target: '9:16', kieAr: '9:16', cloudinaryAr: null },              // 9:16 原生(IG Stories/Reels)
+  { target: '1.91:1', kieAr: '16:9', cloudinaryAr: '191:100' },       // 16:9 (1.78) 微擴張到 1.91 (FB 廣告)
 ];
 
 function applyCloudinaryAspect(url, ar) {
@@ -35,22 +36,22 @@ export async function POST(req) {
 
     const prompt = extraPrompt ? `${STYLE_PROMPT}\n\nExtra direction: ${extraPrompt}` : STYLE_PROMPT;
 
-    // 並行 3 個 KIE call
+    // 並行 3 個 KIE V2 call (原生 aspect_ratio,不再走老 endpoint)
     const results = await Promise.all(SIZE_MAP.map(async (spec) => {
       const t0 = Date.now();
       try {
-        const taskId = await submitImage({
+        const taskId = await submitImageV2({
           prompt,
           referenceImages: [refUrl],
-          size: spec.kieSize,
+          aspect_ratio: spec.kieAr,
         });
-        const kieUrl = await pollImage(taskId);
+        const kieUrl = await pollImageV2(taskId);
         const buffer = await downloadImage(kieUrl);
         const up = await uploadToCloudinary(buffer, { folder: 'material/results' });
         const finalUrl = applyCloudinaryAspect(up.url, spec.cloudinaryAr);
         return {
           target: spec.target,
-          kieSize: spec.kieSize,
+          kieAr: spec.kieAr,
           url: finalUrl,
           rawUrl: up.url,
           ms: Date.now() - t0,
@@ -58,7 +59,7 @@ export async function POST(req) {
       } catch (e) {
         return {
           target: spec.target,
-          kieSize: spec.kieSize,
+          kieAr: spec.kieAr,
           error: e.message,
           ms: Date.now() - t0,
         };
