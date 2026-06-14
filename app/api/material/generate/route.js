@@ -12,7 +12,7 @@ const STYLE_PROMPT = 'Create a new original image inspired by the visual style o
 /**
  * 用產品資料 + 選擇的標題/文案 build 更具體的 prompt
  */
-function buildProductPrompt({ product, title, subtitle, copy, brand, brand_persona, refMode }) {
+function buildProductPrompt({ product, title, subtitle, copy, brand, brand_persona, useLogo, hasCompositionRef, omitCopy }) {
   if (!product) return STYLE_PROMPT;
   const parts = [];
 
@@ -27,16 +27,25 @@ function buildProductPrompt({ product, title, subtitle, copy, brand, brand_perso
   if (subtitle) {
     parts.push(`Render subheadline: "${subtitle}" smaller but readable.`);
   }
-  if (copy) {
+  if (copy && !omitCopy) {
     parts.push(`Mood reference (do not render as text): ${copy.slice(0, 100)}`);
   }
   if (brand) parts.push(`Brand: ${brand}.`);
   if (brand_persona) parts.push(`Brand vibe: ${brand_persona.slice(0, 60)}.`);
 
-  if (refMode === 'product_only') {
+  // 多參考圖時要明確說明每張角色
+  if (useLogo && hasCompositionRef) {
+    parts.push('Reference images (in order): [1] Product appearance source, [2] Brand logo to subtly include, [3] Composition / layout inspiration. Do NOT copy reference 1\'s background. Use reference 3 ONLY for composition / framing / camera angle.');
+    parts.push('Include the brand logo subtly in a corner. Do not distort or invent variations of the logo.');
+  } else if (useLogo) {
+    parts.push('Reference images (in order): [1] Product appearance source, [2] Brand logo to subtly include. Do NOT copy reference 1\'s background. Design a fresh composition.');
+    parts.push('Include the brand logo subtly in a corner. Do not distort or invent variations of the logo.');
+  } else if (hasCompositionRef) {
+    parts.push('Reference images (in order): [1] Product appearance source, [2] Composition / layout inspiration. Do NOT copy reference 1\'s background. Use reference 2 ONLY for composition / framing / camera angle, NOT for product or color.');
+    parts.push('STRICT: NO brand logo, NO brand name as text, NO invented logos in the image.');
+  } else {
     parts.push('Use the reference image as the product appearance source. Do not copy its background or composition — design a fresh layout.');
-  } else if (refMode === 'style_ref') {
-    parts.push('Use the reference image purely for visual style (color/lighting/mood). The product itself should be the main focus.');
+    parts.push('STRICT: NO brand logo, NO brand name as text, NO invented logos in the image.');
   }
 
   parts.push('Photorealistic, high quality, social media ready, vibrant lighting, conversion-focused composition.');
@@ -63,13 +72,36 @@ export async function POST(req) {
     if (!hasCloudinary()) {
       return NextResponse.json({ error: '雲端儲存未設定' }, { status: 503 });
     }
-    const { refUrl, extraPrompt, product, title, subtitle, copy, brand, brand_persona, refMode } = await req.json();
+    const {
+      refUrl,
+      extraPrompt,
+      product,
+      title,
+      subtitle,
+      copy,
+      brand,
+      brand_persona,
+      logoUrl,         // 品牌 LOGO URL (選填)
+      useLogo,         // 是否合成 LOGO
+      compositionRefUrl, // 構圖參考圖 URL (選填)
+      omitCopy,        // 不增加文案 (主標副標仍保留)
+    } = await req.json();
     if (!refUrl || typeof refUrl !== 'string') {
       return NextResponse.json({ error: 'refUrl required' }, { status: 400 });
     }
 
+    // 組合多參考圖 (順序很重要,prompt 會用 [1][2][3] 指)
+    const inputUrls = [refUrl];
+    if (useLogo && logoUrl) inputUrls.push(logoUrl);
+    if (compositionRefUrl) inputUrls.push(compositionRefUrl);
+
     const basePrompt = product
-      ? buildProductPrompt({ product, title, subtitle, copy, brand, brand_persona, refMode })
+      ? buildProductPrompt({
+          product, title, subtitle, copy, brand, brand_persona,
+          useLogo: !!(useLogo && logoUrl),
+          hasCompositionRef: !!compositionRefUrl,
+          omitCopy: !!omitCopy,
+        })
       : STYLE_PROMPT;
     const prompt = extraPrompt ? `${basePrompt}\n\nExtra direction: ${extraPrompt}` : basePrompt;
 
@@ -79,7 +111,7 @@ export async function POST(req) {
       try {
         const taskId = await submitImageV2({
           prompt,
-          referenceImages: [refUrl],
+          referenceImages: inputUrls,
           aspect_ratio: spec.kieAr,
         });
         const kieUrl = await pollImageV2(taskId);

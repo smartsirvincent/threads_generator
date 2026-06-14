@@ -11,9 +11,20 @@ export default function MaterialPage() {
   const [productPhotoPreview, setProductPhotoPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  // 新增的廣告元素
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [logoPreview, setLogoPreview] = useState(null);
+  const [useLogo, setUseLogo] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
+
+  const [compositionRefUrl, setCompositionRefUrl] = useState(null);
+  const [compositionRefPreview, setCompositionRefPreview] = useState(null);
+  const [compRefUploading, setCompRefUploading] = useState(false);
+
   const [suggesting, setSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState({ titles: [], subtitle: '', copy: '' });
   const [picked, setPicked] = useState({ title: '', subtitle: '', copy: '' });
+  const [omitCopy, setOmitCopy] = useState(false);
   const [extraPrompt, setExtraPrompt] = useState('');
 
   const [generating, setGenerating] = useState(false);
@@ -38,6 +49,13 @@ export default function MaterialPage() {
           productPhotoUrl={productPhotoUrl} setProductPhotoUrl={setProductPhotoUrl}
           productPhotoPreview={productPhotoPreview} setProductPhotoPreview={setProductPhotoPreview}
           uploading={uploading} setUploading={setUploading}
+          logoUrl={logoUrl} setLogoUrl={setLogoUrl}
+          logoPreview={logoPreview} setLogoPreview={setLogoPreview}
+          useLogo={useLogo} setUseLogo={setUseLogo}
+          logoUploading={logoUploading} setLogoUploading={setLogoUploading}
+          compositionRefUrl={compositionRefUrl} setCompositionRefUrl={setCompositionRefUrl}
+          compositionRefPreview={compositionRefPreview} setCompositionRefPreview={setCompositionRefPreview}
+          compRefUploading={compRefUploading} setCompRefUploading={setCompRefUploading}
           error={error} setError={setError}
           onNext={async () => {
             if (!product.name?.trim()) { setError('請至少填寫產品名稱'); return; }
@@ -68,6 +86,7 @@ export default function MaterialPage() {
       {step === 2 && (
         <Step2Suggest
           suggestions={suggestions} picked={picked} setPicked={setPicked}
+          omitCopy={omitCopy} setOmitCopy={setOmitCopy}
           extraPrompt={extraPrompt} setExtraPrompt={setExtraPrompt}
           onBack={() => setStep(1)}
           onRegen={async () => {
@@ -102,7 +121,10 @@ export default function MaterialPage() {
                   copy: picked.copy,
                   brand: brandContext.brand,
                   brand_persona: brandContext.brand_persona,
-                  refMode: 'product_only',
+                  logoUrl,
+                  useLogo,
+                  compositionRefUrl,
+                  omitCopy,
                   extraPrompt,
                 }),
               });
@@ -160,8 +182,8 @@ function initialProduct() {
 }
 
 const STEPS = [
-  { n: 1, label: '產品設定' },
-  { n: 2, label: '標題+文案' },
+  { n: 1, label: '廣告元素' },
+  { n: 2, label: 'AI 創意魔法' },
   { n: 3, label: '生成中' },
   { n: 4, label: '完成' },
 ];
@@ -198,9 +220,31 @@ function Stepper({ current }) {
 function Step1Product({
   product, setProduct, brandContext, setBrandContext,
   productPhotoUrl, setProductPhotoUrl, productPhotoPreview, setProductPhotoPreview,
-  uploading, setUploading, error, setError,
+  uploading, setUploading,
+  logoUrl, setLogoUrl, logoPreview, setLogoPreview, useLogo, setUseLogo,
+  logoUploading, setLogoUploading,
+  compositionRefUrl, setCompositionRefUrl, compositionRefPreview, setCompositionRefPreview,
+  compRefUploading, setCompRefUploading,
+  error, setError,
   onNext, loading,
 }) {
+  async function uploadFile(file, onSuccess, onProgress) {
+    setError('');
+    if (!file) return;
+    onProgress(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/material/upload-ref', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      onSuccess(data.url);
+    } catch (e) {
+      setError('上傳失敗:' + e.message);
+    } finally {
+      onProgress(false);
+    }
+  }
   return (
     <div className="space-y-4">
       <ProductLoader
@@ -306,6 +350,74 @@ function Step1Product({
         </div>
       </div>
 
+      {/* ===== 品牌 LOGO ===== */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-stone-700">🏷 品牌 LOGO（選填）</h3>
+          <label className="inline-flex items-center gap-2 text-xs text-stone-600">
+            <input
+              type="checkbox"
+              checked={useLogo}
+              onChange={(e) => setUseLogo(e.target.checked)}
+              disabled={!logoUrl}
+              className="size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-40"
+            />
+            合成到圖片中
+          </label>
+        </div>
+        <ImageUploader
+          url={logoUrl}
+          preview={logoPreview}
+          uploading={logoUploading}
+          placeholder="上傳品牌 LOGO（PNG 去背最佳）"
+          icon="🏷"
+          onPick={async (file) => {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => setLogoPreview(reader.result);
+            reader.readAsDataURL(file);
+            await uploadFile(file, (url) => {
+              setLogoUrl(url);
+              setUseLogo(true);
+            }, setLogoUploading);
+          }}
+          onClear={() => {
+            setLogoUrl(null);
+            setLogoPreview(null);
+            setUseLogo(false);
+          }}
+        />
+        <p className="text-[11px] text-stone-500">
+          ⚠ 不上傳 LOGO 或不勾「合成到圖片中」時，AI 嚴禁自行合成任何 LOGO / 品牌標。
+        </p>
+      </div>
+
+      {/* ===== 構圖參考圖 ===== */}
+      <div className="card space-y-3">
+        <h3 className="text-sm font-medium text-stone-700">🖼 上傳照片模仿構圖（選填）</h3>
+        <ImageUploader
+          url={compositionRefUrl}
+          preview={compositionRefPreview}
+          uploading={compRefUploading}
+          placeholder="上傳一張你喜歡的構圖參考圖"
+          icon="🎨"
+          onPick={async (file) => {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => setCompositionRefPreview(reader.result);
+            reader.readAsDataURL(file);
+            await uploadFile(file, setCompositionRefUrl, setCompRefUploading);
+          }}
+          onClear={() => {
+            setCompositionRefUrl(null);
+            setCompositionRefPreview(null);
+          }}
+        />
+        <p className="text-[11px] text-stone-500">
+          💡 只取構圖 / 鏡頭角度 / 排版佈局，不抄顏色不抄產品。沒上傳就讓 AI 自由發揮。
+        </p>
+      </div>
+
       <div className="card space-y-3">
         <h3 className="text-sm font-medium text-stone-700">品牌背景（選填,讓文案更貼合）</h3>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -337,12 +449,16 @@ function Step1Product({
   );
 }
 
-function ProductPhotoUploader({ url, preview, uploading, onPick, onClear }) {
+function ProductPhotoUploader(props) {
+  return <ImageUploader {...props} icon="📷" placeholder="點擊或拖拉上傳產品照" />;
+}
+
+function ImageUploader({ url, preview, uploading, onPick, onClear, icon = '📷', placeholder = '點擊或拖拉上傳' }) {
   if (preview) {
     return (
       <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={preview} alt="product" className="size-24 rounded-md object-cover" />
+        <img src={preview} alt="upload" className="size-24 rounded-md object-cover" />
         <div className="flex-1">
           <div className="text-xs text-stone-600">{url ? '✓ 已上傳' : uploading ? '上傳中…' : '本機預覽'}</div>
           {url && <div className="mt-1 break-all text-[10px] text-stone-400">{url.slice(0, 80)}…</div>}
@@ -353,8 +469,8 @@ function ProductPhotoUploader({ url, preview, uploading, onPick, onClear }) {
   }
   return (
     <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone-300 bg-white py-8 text-center hover:border-emerald-300 hover:bg-emerald-50/30">
-      <span className="text-3xl">📷</span>
-      <span className="text-sm text-stone-600">點擊或拖拉上傳產品照</span>
+      <span className="text-3xl">{icon}</span>
+      <span className="text-sm text-stone-600">{placeholder}</span>
       <input
         type="file"
         accept="image/png,image/jpeg,image/webp"
@@ -484,7 +600,7 @@ function ProductLoader({ onApply }) {
 
 // ============== Step 2: 建議 ==============
 
-function Step2Suggest({ suggestions, picked, setPicked, extraPrompt, setExtraPrompt, onBack, onRegen, regenerating, onNext }) {
+function Step2Suggest({ suggestions, picked, setPicked, omitCopy, setOmitCopy, extraPrompt, setExtraPrompt, onBack, onRegen, regenerating, onNext }) {
   return (
     <div className="space-y-4">
       <div className="card space-y-4">
@@ -529,12 +645,29 @@ function Step2Suggest({ suggestions, picked, setPicked, extraPrompt, setExtraPro
         </div>
 
         <div>
-          <label className="label">文案 (可改)</label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="label !mb-0">文案 (可改)</label>
+            <label className="inline-flex items-center gap-2 text-xs text-stone-600">
+              <input
+                type="checkbox"
+                checked={omitCopy}
+                onChange={(e) => setOmitCopy(e.target.checked)}
+                className="size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              不增加文案（圖只保留主標 + 副標）
+            </label>
+          </div>
           <textarea
-            className="input min-h-[120px] text-sm"
+            className={`input min-h-[120px] text-sm ${omitCopy ? 'bg-stone-100 text-stone-400 line-through' : ''}`}
             value={picked.copy}
             onChange={(e) => setPicked({ ...picked, copy: e.target.value })}
+            disabled={omitCopy}
           />
+          {omitCopy && (
+            <p className="mt-1 text-[11px] text-stone-500">
+              ✓ 已關閉。生圖時不會把文案傳給 AI，仍可在 Step 4 下方手動複製去發貼文。
+            </p>
+          )}
         </div>
 
         <div>
