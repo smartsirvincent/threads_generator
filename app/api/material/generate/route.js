@@ -17,25 +17,46 @@ const TEXT_MODES = new Set(['none', 'title_sub', 'short', 'long']);
  *   'title_sub' → 圖中只有主標 + 副標
  *   'short'     → 主標 + 副標 + 短版文案 (圖中)
  *   'long'      → 主標 + 副標 + 長版文案 (文字較重的廣告版型)
+ *
+ * 每種模式都嚴格 only-this-text:除了指定文字之外不可有任何其他字、標籤、徽章、價格牌、浮水印
  */
 function buildTextRenderInstructions({ textMode, title, subtitle, copyShort, copyLong }) {
   const parts = [];
+
   if (textMode === 'none') {
-    parts.push('TEXT RENDERING — STRICT: Do NOT render any visible text in the image. No headline, no subhead, no body copy, no labels, no watermarks. Pure visual composition only.');
+    parts.push('TEXT RENDERING — ABSOLUTELY STRICT: Do NOT render ANY visible text whatsoever in the image. NO headline, NO subhead, NO body copy, NO product labels printed on background, NO watermarks, NO logos, NO badges, NO price tags, NO hashtags, NO captions, NO signage in scene. Pure visual composition with zero typography. This rule overrides any other instruction.');
     return parts;
   }
+
+  // 收集允許出現的文字內容
+  const allowedTexts = [];
+
   if (title) {
-    parts.push(`Render the main headline "${title}" as bold legible text overlay within the composition (typographically integrated, not floating).`);
+    parts.push(`TEXT TO RENDER (1) — MAIN HEADLINE: "${title}". Render as bold, legible, typographically integrated overlay within the composition. This is the dominant text.`);
+    allowedTexts.push(`"${title}"`);
   }
   if (subtitle) {
-    parts.push(`Render subheadline: "${subtitle}" smaller but readable.`);
+    parts.push(`TEXT TO RENDER (2) — SUBHEADLINE: "${subtitle}". Smaller than headline but still readable.`);
+    allowedTexts.push(`"${subtitle}"`);
   }
   if (textMode === 'short' && copyShort) {
-    parts.push(`Render a short supporting body copy: "${copyShort}" — small clean text block, well placed, 1-2 lines.`);
+    parts.push(`TEXT TO RENDER (3) — SHORT BODY COPY: "${copyShort}". Small clean text block, 1-2 lines, supporting the headline.`);
+    allowedTexts.push(`"${copyShort}"`);
   }
   if (textMode === 'long' && copyLong) {
-    parts.push(`Render full body copy: "${copyLong}" — typographically integrated as a multi-line text block, text-heavy ad layout style, readable typography with clear hierarchy.`);
+    parts.push(`TEXT TO RENDER (3) — FULL BODY COPY: "${copyLong}". Multi-line text block, text-heavy ad layout style, clear typographic hierarchy.`);
+    allowedTexts.push(`"${copyLong}"`);
   }
+
+  // 加超強約束:除了允許清單之外的字一個都不可以出現
+  const modeLabel = {
+    title_sub: 'ONLY the main headline and subheadline above',
+    short: 'ONLY the main headline, subheadline, and short body copy above',
+    long: 'ONLY the main headline, subheadline, and full body copy above',
+  }[textMode] || 'ONLY the texts listed above';
+
+  parts.push(`TEXT RENDERING — STRICT EXCLUSIVITY: The image must contain ${modeLabel} — these EXACT strings, NOTHING ELSE. Specifically FORBIDDEN: do NOT add any extra captions, do NOT invent additional taglines, do NOT add hashtags, do NOT add price tags or discount badges (unless they ARE the listed text), do NOT add promotional stickers, do NOT add watermarks, do NOT render brand names as separate text, do NOT add decorative signage in the scene, do NOT show packaging label text beyond what is already printed on the reference product. The allowed text strings are: ${allowedTexts.join(' | ')}. Anything beyond this list is a VIOLATION.`);
+
   return parts;
 }
 
