@@ -438,7 +438,8 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
 
           {imageState.images.filter((img) => img.url || img.error).length > 0 && (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {imageState.images.filter((img) => img.url || img.error).slice(-12).map((img) => (
+              {/* 顯示所有已完成的圖,不再 slice(-12) — 大量生圖時前面也看得到 */}
+              {imageState.images.filter((img) => img.url || img.error).map((img) => (
                 <ImageTile key={img.id} img={img} compact />
               ))}
             </div>

@@ -15,6 +15,26 @@ export default function Landing() {
         </p>
       </section>
 
+      {/* ===== 品牌資訊入口 ===== */}
+      <section className="rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-6">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-emerald-800">
+              🏷 品牌資訊輸入
+            </h2>
+            <p className="mt-1 text-xs text-emerald-700">
+              共用品牌與 SKU 資料庫 — 編輯一次，所有流程都能載入。同名儲存會覆蓋不會多筆。
+            </p>
+          </div>
+          <Link
+            href="/brand"
+            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            進入編輯 →
+          </Link>
+        </div>
+      </section>
+
       {/* ===== 三大功能卡片 ===== */}
       <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <EntryCard

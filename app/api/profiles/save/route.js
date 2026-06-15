@@ -1,7 +1,7 @@
 // 雲端儲存 profile 到 Cloudinary raw
+// 改成覆蓋模式:同名直接覆蓋,不再每次產生新檔
 import { NextResponse } from 'next/server';
 import { uploadRawToCloudinary, hasCloudinary } from '@/lib/cloudinary.js';
-import { randomBytes } from 'node:crypto';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -20,8 +20,8 @@ export async function POST(req) {
     }
 
     const safeName = sanitizeName(name);
-    const hash = randomBytes(4).toString('hex'); // 8 字元亂數
-    const publicId = `threads-generator/profiles/${safeName}--${hash}`;
+    // 同名直接覆蓋:publicId 不帶 hash 後綴
+    const publicId = `threads-generator/profiles/${safeName}`;
 
     const json = JSON.stringify({
       name,
@@ -33,6 +33,7 @@ export async function POST(req) {
     const up = await uploadRawToCloudinary(buffer, {
       publicId,
       filename: `${safeName}.json`,
+      overwrite: true, // 同名直接覆蓋,不會 fail "Asset already exists"
     });
 
     return NextResponse.json({

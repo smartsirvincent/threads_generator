@@ -15,7 +15,7 @@ function buildPayload(input) {
     audience: input.audience.trim(),
     brand_persona: input.brand_persona.trim(),
     purchase_url: input.purchase_url.trim(),
-    platforms: input.platforms,
+    platforms: Array.isArray(input.platforms) && input.platforms.length > 0 ? input.platforms : ['Threads'],
     monthly_total: Number(input.monthly_total) || 100,
     start_date: input.start_date,
     dry_run: input.dry_run,
@@ -56,6 +56,7 @@ export default function Step1Form({
   loadingLabel = '🔮 AI 推薦主題中…',
   showImageHint = true,
   showImageStyles = false,
+  hideSubmit = false,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -225,14 +226,7 @@ export default function Step1Form({
     setInput((s) => ({ ...s, [field]: value }));
   }
 
-  function togglePlatform(p) {
-    setInput((s) => ({
-      ...s,
-      platforms: s.platforms.includes(p)
-        ? s.platforms.filter((x) => x !== p)
-        : [...s.platforms, p],
-    }));
-  }
+  // togglePlatform 已移除 (UI 拿掉啟用平台選項,後端預設 ['Threads'])
 
   function toggleProductImageStyle(i, key) {
     // 預設值: scene/character/product 預設 true,ecommerce 預設 false
@@ -559,34 +553,16 @@ export default function Step1Form({
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="label">啟用平台</label>
-            <div className="flex gap-3 pt-2">
-              {ALL_PLATFORMS.map((p) => (
-                <label key={p} className="inline-flex items-center gap-2 text-sm text-stone-700">
-                  <input
-                    type="checkbox"
-                    checked={input.platforms.includes(p)}
-                    onChange={() => togglePlatform(p)}
-                    className="size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
-                  />
-                  {p}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="label">每月發文總量</label>
-            <input
-              type="number"
-              className="input"
-              value={input.monthly_total}
-              onChange={(e) => update('monthly_total', e.target.value)}
-              min={20}
-              max={500}
-            />
-          </div>
+        <div>
+          <label className="label">每月發文總量</label>
+          <input
+            type="number"
+            className="input"
+            value={input.monthly_total}
+            onChange={(e) => update('monthly_total', e.target.value)}
+            min={20}
+            max={500}
+          />
         </div>
       </div>
 
@@ -654,11 +630,13 @@ export default function Step1Form({
         </div>
       )}
 
-      <div className="flex justify-end">
-        <button type="submit" disabled={loading} className="btn-primary">
-          {loading ? loadingLabel : submitLabel}
-        </button>
-      </div>
+      {!hideSubmit && (
+        <div className="flex justify-end">
+          <button type="submit" disabled={loading} className="btn-primary">
+            {loading ? loadingLabel : submitLabel}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
