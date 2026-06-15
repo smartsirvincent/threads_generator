@@ -78,6 +78,7 @@ export default function BrandPage() {
         onLoadSample={loadSample}
         showImageHint={false}
         showImageStyles={true}
+        showThemeStrategy={true}
         hideSubmit={true}
         onSubmit={() => {}}
       />

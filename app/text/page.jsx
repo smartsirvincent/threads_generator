@@ -165,6 +165,8 @@ export default function Home() {
           input={input}
           setInput={setInput}
           onLoadSample={loadSample}
+          loadOnly={true}
+          showThemeStrategy={true}
           onSubmit={async (themesFromAPI) => {
             setThemes(themesFromAPI);
             setStep(2);

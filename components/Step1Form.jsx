@@ -55,8 +55,10 @@ export default function Step1Form({
   submitLabel = '下一步：AI 推薦主題 →',
   loadingLabel = '🔮 AI 推薦主題中…',
   showImageHint = true,
-  showImageStyles = false,
+  showImageStyles = false,         // SKU 級別圖片風格 checkbox (僅圖片相關流程)
+  showThemeStrategy = false,        // 主題分配策略 radio (shared/per_sku) — 文字+圖片都用
   hideSubmit = false,
+  loadOnly = false, // 只能載入,不能存/刪/匯出/匯入 (給 /text /image-plan /material 用)
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -325,20 +327,28 @@ export default function Step1Form({
             </div>
           </div>
 
+          {loadOnly && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+              💡 這裡只能<strong>載入</strong>品牌設定。要新增 / 修改 / 刪除請去 <a href="/brand" className="font-semibold underline">🏷 品牌資訊輸入</a> 統一管理。
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-2 rounded-lg bg-stone-50 p-3 text-xs sm:grid-cols-3">
             {/* 本機 */}
             <div className="space-y-1">
               <div className="font-medium text-stone-600">💾 本機（這台瀏覽器）</div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleSaveProfile}
-                  className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
-                >
-                  儲存
-                </button>
+                {!loadOnly && (
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
+                  >
+                    儲存
+                  </button>
+                )}
                 {profiles.length === 0 ? (
-                  <span className="text-stone-400">(尚未存)</span>
+                  <span className="text-stone-400">{loadOnly ? '(無設定可載入)' : '(尚未存)'}</span>
                 ) : (
                   <select
                     onChange={(e) => { handleLoadProfile(e.target.value); e.target.value = ''; }}
@@ -351,7 +361,7 @@ export default function Step1Form({
                     ))}
                   </select>
                 )}
-                {profiles.length > 0 && (
+                {!loadOnly && profiles.length > 0 && (
                   <details className="relative">
                     <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
                     <ul className="absolute left-0 z-20 mt-1 w-44 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
@@ -371,16 +381,18 @@ export default function Step1Form({
             <div className="space-y-1">
               <div className="font-medium text-stone-600">☁️ 雲端（跨裝置）</div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleSaveCloud}
-                  disabled={cloudBusy}
-                  className="rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                >
-                  存雲端
-                </button>
+                {!loadOnly && (
+                  <button
+                    type="button"
+                    onClick={handleSaveCloud}
+                    disabled={cloudBusy}
+                    className="rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                  >
+                    存雲端
+                  </button>
+                )}
                 {cloudProfiles.length === 0 ? (
-                  <span className="text-stone-400">(雲端無設定)</span>
+                  <span className="text-stone-400">{loadOnly ? '(無設定可載入)' : '(雲端無設定)'}</span>
                 ) : (
                   <select
                     onChange={(e) => { handleLoadCloud(e.target.value); e.target.value = ''; }}
@@ -394,7 +406,7 @@ export default function Step1Form({
                     ))}
                   </select>
                 )}
-                {cloudProfiles.length > 0 && (
+                {!loadOnly && cloudProfiles.length > 0 && (
                   <details className="relative">
                     <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
                     <ul className="absolute left-0 z-20 mt-1 w-56 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
@@ -420,23 +432,25 @@ export default function Step1Form({
               {cloudError && <div className="text-red-600">⚠ {cloudError.slice(0, 60)}</div>}
             </div>
 
-            {/* JSON 檔案 */}
-            <div className="space-y-1">
-              <div className="font-medium text-stone-600">📁 JSON 檔案（備份）</div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleExportJSON}
-                  className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50"
-                >
-                  📥 匯出
-                </button>
-                <label className="cursor-pointer rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">
-                  📤 匯入
-                  <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                </label>
+            {/* JSON 檔案 (load-only 模式整個隱藏) */}
+            {!loadOnly && (
+              <div className="space-y-1">
+                <div className="font-medium text-stone-600">📁 JSON 檔案（備份）</div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleExportJSON}
+                    className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50"
+                  >
+                    📥 匯出
+                  </button>
+                  <label className="cursor-pointer rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">
+                    📤 匯入
+                    <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+                  </label>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -522,10 +536,10 @@ export default function Step1Form({
           </div>
         </div>
 
-        {showImageStyles && (
+        {showThemeStrategy && (
           <div className="rounded-lg border border-purple-100 bg-purple-50/40 p-3">
             <label className="label mb-2">
-              主題分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦圖片主題的方式）</span>
+              主題分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦主題的方式）</span>
             </label>
             <div className="flex flex-wrap gap-3">
               {[
@@ -547,9 +561,11 @@ export default function Step1Form({
                 </label>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-stone-500">
-              💡 圖片風格（情境 / 人物 / 產品為主）在下方每個產品卡片裡各自設定
-            </p>
+            {showImageStyles && (
+              <p className="mt-2 text-[11px] text-stone-500">
+                💡 圖片風格（情境 / 人物 / 產品為主）在下方每個產品卡片裡各自設定
+              </p>
+            )}
           </div>
         )}
 
