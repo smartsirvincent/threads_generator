@@ -22,9 +22,18 @@ export default function MaterialPage() {
   const [compRefUploading, setCompRefUploading] = useState(false);
 
   const [suggesting, setSuggesting] = useState(false);
-  const [suggestions, setSuggestions] = useState({ titles: [], subtitle: '', copy: '' });
-  const [picked, setPicked] = useState({ title: '', subtitle: '', copy: '' });
-  const [omitCopy, setOmitCopy] = useState(false);
+  const [suggestions, setSuggestions] = useState({
+    titles: [], subtitle: '', copy: '', copy_short: '', copy_long: '',
+    composition_prompt: '', has_person: false, person_description: '',
+  });
+  const [picked, setPicked] = useState({
+    title: '', subtitle: '', copy: '', copy_short: '', copy_long: '',
+  });
+  // textMode: 'none' | 'title_sub' | 'short' | 'long'
+  const [textMode, setTextMode] = useState('title_sub');
+  const [includePerson, setIncludePerson] = useState(false);
+  const [personDescription, setPersonDescription] = useState('');
+  const [compositionPrompt, setCompositionPrompt] = useState('');
   const [extraPrompt, setExtraPrompt] = useState('');
 
   const [generating, setGenerating] = useState(false);
@@ -66,12 +75,27 @@ export default function MaterialPage() {
               const res = await fetch('/api/material/suggest', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ product, ...brandContext }),
+                body: JSON.stringify({ product, ...brandContext, compositionRefUrl }),
               });
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
               setSuggestions(data);
-              setPicked({ title: data.titles?.[0] || '', subtitle: data.subtitle || '', copy: data.copy || '' });
+              setPicked({
+                title: data.titles?.[0] || '',
+                subtitle: data.subtitle || '',
+                copy: data.copy || '',
+                copy_short: data.copy_short || '',
+                copy_long: data.copy_long || '',
+              });
+              setCompositionPrompt(data.composition_prompt || '');
+              // 若構圖偵測到人物,預設打勾 + 帶入描述
+              if (data.has_person && compositionRefUrl) {
+                setIncludePerson(true);
+                setPersonDescription(data.person_description || '');
+              } else {
+                setIncludePerson(false);
+                setPersonDescription(data.person_description || '');
+              }
               setStep(2);
             } catch (e) {
               setError('產生建議失敗:' + e.message);
@@ -86,7 +110,12 @@ export default function MaterialPage() {
       {step === 2 && (
         <Step2Suggest
           suggestions={suggestions} picked={picked} setPicked={setPicked}
-          omitCopy={omitCopy} setOmitCopy={setOmitCopy}
+          textMode={textMode} setTextMode={setTextMode}
+          includePerson={includePerson} setIncludePerson={setIncludePerson}
+          personDescription={personDescription} setPersonDescription={setPersonDescription}
+          compositionPrompt={compositionPrompt} setCompositionPrompt={setCompositionPrompt}
+          hasCompositionRef={!!compositionRefUrl}
+          compositionRefPreview={compositionRefPreview}
           extraPrompt={extraPrompt} setExtraPrompt={setExtraPrompt}
           onBack={() => setStep(1)}
           onRegen={async () => {
@@ -95,12 +124,23 @@ export default function MaterialPage() {
               const res = await fetch('/api/material/suggest', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ product, ...brandContext }),
+                body: JSON.stringify({ product, ...brandContext, compositionRefUrl }),
               });
               const data = await res.json();
               if (res.ok) {
                 setSuggestions(data);
-                setPicked({ title: data.titles?.[0] || '', subtitle: data.subtitle || '', copy: data.copy || '' });
+                setPicked({
+                  title: data.titles?.[0] || '',
+                  subtitle: data.subtitle || '',
+                  copy: data.copy || '',
+                  copy_short: data.copy_short || '',
+                  copy_long: data.copy_long || '',
+                });
+                setCompositionPrompt(data.composition_prompt || '');
+                if (data.has_person && compositionRefUrl) {
+                  setIncludePerson(true);
+                  setPersonDescription(data.person_description || '');
+                }
               }
             } finally { setSuggesting(false); }
           }}
@@ -119,12 +159,17 @@ export default function MaterialPage() {
                   title: picked.title,
                   subtitle: picked.subtitle,
                   copy: picked.copy,
+                  copyShort: picked.copy_short,
+                  copyLong: picked.copy_long,
                   brand: brandContext.brand,
                   brand_persona: brandContext.brand_persona,
                   logoUrl,
                   useLogo,
                   compositionRefUrl,
-                  omitCopy,
+                  textMode,
+                  includePerson,
+                  personDescription,
+                  compositionPrompt,
                   extraPrompt,
                 }),
               });
@@ -605,9 +650,51 @@ function ProductLoader({ onApply }) {
 
 // ============== Step 2: 建議 ==============
 
-function Step2Suggest({ suggestions, picked, setPicked, omitCopy, setOmitCopy, extraPrompt, setExtraPrompt, onBack, onRegen, regenerating, onNext }) {
+const TEXT_MODE_OPTIONS = [
+  { key: 'none', label: '無任何文字', hint: '純視覺,圖中不出現任何文字' },
+  { key: 'title_sub', label: '主標 + 副標', hint: '只有 2 行標題文字' },
+  { key: 'short', label: '文案少', hint: '主標 + 副標 + 短版補充 (1-2 行)' },
+  { key: 'long', label: '文案多', hint: '主標 + 副標 + 長版文案 (文字較重廣告)' },
+];
+
+function Step2Suggest({
+  suggestions, picked, setPicked,
+  textMode, setTextMode,
+  includePerson, setIncludePerson,
+  personDescription, setPersonDescription,
+  compositionPrompt, setCompositionPrompt,
+  hasCompositionRef, compositionRefPreview,
+  extraPrompt, setExtraPrompt,
+  onBack, onRegen, regenerating, onNext,
+}) {
   return (
     <div className="space-y-4">
+      {/* ===== 構圖分析 (僅當有上傳構圖照片時顯示) ===== */}
+      {hasCompositionRef && (
+        <div className="card border-purple-200 bg-purple-50/40 space-y-3">
+          <h2 className="text-lg font-semibold text-purple-900">🖼 構圖參考圖分析</h2>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {compositionRefPreview && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={compositionRefPreview} alt="composition ref" className="size-32 rounded-lg object-cover" />
+            )}
+            <div className="flex-1 space-y-2">
+              <label className="label text-xs">AI 解析後的構圖提示詞 (可改)</label>
+              <textarea
+                className="input min-h-[100px] text-xs leading-relaxed"
+                value={compositionPrompt}
+                onChange={(e) => setCompositionPrompt(e.target.value)}
+                placeholder="AI 將根據此描述模仿構圖 (鏡頭角度 / 排版 / 光線 / 留白...)"
+              />
+              <p className="text-[11px] text-purple-700">
+                💡 只取構圖,不抄具體內容。可微調英文或加字。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 標題建議 ===== */}
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-stone-900">AI 標題建議（選一個或自訂）</h2>
@@ -648,42 +735,118 @@ function Step2Suggest({ suggestions, picked, setPicked, omitCopy, setOmitCopy, e
             onChange={(e) => setPicked({ ...picked, subtitle: e.target.value })}
           />
         </div>
+      </div>
 
-        <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <label className="label !mb-0">文案 (可改)</label>
-            <label className="inline-flex items-center gap-2 text-xs text-stone-600">
-              <input
-                type="checkbox"
-                checked={omitCopy}
-                onChange={(e) => setOmitCopy(e.target.checked)}
-                className="size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
-              />
-              不增加文案（圖只保留主標 + 副標）
-            </label>
+      {/* ===== 圖中文案模式 (4 radio) ===== */}
+      <div className="card space-y-3">
+        <h3 className="text-sm font-semibold text-stone-800">📝 圖中文案模式</h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {TEXT_MODE_OPTIONS.map((opt) => {
+            const active = textMode === opt.key;
+            return (
+              <label key={opt.key}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 ${active ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 hover:bg-stone-50'}`}>
+                <input
+                  type="radio"
+                  name="textMode"
+                  checked={active}
+                  onChange={() => setTextMode(opt.key)}
+                  className="mt-0.5 size-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-stone-800">{opt.label}</div>
+                  <div className="text-[11px] text-stone-500">{opt.hint}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* short / long 模式才顯示對應 copy 編輯 */}
+        {textMode === 'short' && (
+          <div>
+            <label className="label text-xs">短版圖中文案 (可改)</label>
+            <textarea
+              className="input min-h-[60px] text-sm"
+              value={picked.copy_short}
+              onChange={(e) => setPicked({ ...picked, copy_short: e.target.value })}
+              placeholder="20-40 字,1-2 行"
+            />
           </div>
-          <textarea
-            className={`input min-h-[120px] text-sm ${omitCopy ? 'bg-stone-100 text-stone-400 line-through' : ''}`}
-            value={picked.copy}
-            onChange={(e) => setPicked({ ...picked, copy: e.target.value })}
-            disabled={omitCopy}
-          />
-          {omitCopy && (
-            <p className="mt-1 text-[11px] text-stone-500">
-              ✓ 已關閉。生圖時不會把文案傳給 AI，仍可在 Step 4 下方手動複製去發貼文。
-            </p>
-          )}
-        </div>
+        )}
+        {textMode === 'long' && (
+          <div>
+            <label className="label text-xs">長版圖中文案 (可改)</label>
+            <textarea
+              className="input min-h-[100px] text-sm"
+              value={picked.copy_long}
+              onChange={(e) => setPicked({ ...picked, copy_long: e.target.value })}
+              placeholder="60-100 字,可含換行"
+            />
+          </div>
+        )}
+      </div>
 
-        <div>
-          <label className="label text-xs">額外視覺指示（選填,例:「加上柔光」「換成黃昏色調」）</label>
-          <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} />
+      {/* ===== 人物 ===== */}
+      <div className="card space-y-3">
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="includePerson"
+            checked={includePerson}
+            onChange={(e) => setIncludePerson(e.target.checked)}
+            className="mt-1 size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+          />
+          <div className="flex-1">
+            <label htmlFor="includePerson" className="cursor-pointer text-sm font-medium text-stone-800">
+              👤 圖片中加入人物
+            </label>
+            {hasCompositionRef && suggestions.has_person && (
+              <p className="text-[11px] text-emerald-700">✓ 構圖參考圖中偵測到人物,已預設打勾</p>
+            )}
+            {hasCompositionRef && !suggestions.has_person && (
+              <p className="text-[11px] text-stone-500">構圖參考圖中沒偵測到人物,預設不加</p>
+            )}
+            {!hasCompositionRef && (
+              <p className="text-[11px] text-stone-500">沒上傳構圖參考圖,預設不加人物</p>
+            )}
+          </div>
         </div>
+        {includePerson && (
+          <div>
+            <label className="label text-xs">人物樣子 (可改)</label>
+            <textarea
+              className="input min-h-[60px] text-sm"
+              value={personDescription}
+              onChange={(e) => setPersonDescription(e.target.value)}
+              placeholder="例:25 歲女性,休閒風格,雙手捧著產品,自然微笑"
+            />
+            <p className="mt-1 text-[11px] text-stone-500">
+              💡 描述人物性別 / 年齡感 / 穿著 / 姿勢 / 表情
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ===== 完整貼文文案 (僅在 Step 4 用,圖中不渲染) ===== */}
+      <div className="card space-y-2">
+        <label className="label">📱 完整貼文文案 (Step 4 可複製,不會渲染到圖中)</label>
+        <textarea
+          className="input min-h-[100px] text-sm"
+          value={picked.copy}
+          onChange={(e) => setPicked({ ...picked, copy: e.target.value })}
+        />
+      </div>
+
+      {/* ===== 額外指示 ===== */}
+      <div className="card">
+        <label className="label text-xs">額外視覺指示（選填,例:「加上柔光」「換成黃昏色調」）</label>
+        <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} />
       </div>
 
       <div className="flex items-center justify-between">
         <button type="button" onClick={onBack} className="btn-secondary">← 上一步</button>
-        <button type="button" onClick={onNext} disabled={!picked.title?.trim()} className="btn-primary">
+        <button type="button" onClick={onNext} disabled={!picked.title?.trim() && textMode !== 'none'} className="btn-primary">
           下一步:並行生 3 張 →
         </button>
       </div>
