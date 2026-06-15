@@ -64,18 +64,38 @@ function tolerantParse(text) {
   throw new Error('Failed to parse JSON: ' + s.slice(0, 200));
 }
 
+async function fetchAsBase64(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch image HTTP ${res.status}`);
+  const ct = res.headers.get('content-type') || '';
+  const buf = Buffer.from(await res.arrayBuffer());
+  let mediaType = 'image/jpeg';
+  if (/png/i.test(ct)) mediaType = 'image/png';
+  else if (/webp/i.test(ct)) mediaType = 'image/webp';
+  else if (/gif/i.test(ct)) mediaType = 'image/gif';
+  else if (/jpeg|jpg/i.test(ct)) mediaType = 'image/jpeg';
+  // fallback: 看 URL 副檔名
+  if (mediaType === 'image/jpeg') {
+    if (/\.png(\?|$)/i.test(url)) mediaType = 'image/png';
+    else if (/\.webp(\?|$)/i.test(url)) mediaType = 'image/webp';
+    else if (/\.gif(\?|$)/i.test(url)) mediaType = 'image/gif';
+  }
+  return { data: buf.toString('base64'), media_type: mediaType };
+}
+
 async function analyzeComposition(imageUrl) {
   try {
+    const { data, media_type } = await fetchAsBase64(imageUrl);
     const resp = await client().messages.create({
       model: MODEL,
-      max_tokens: 1000,
+      max_tokens: 1500,
       temperature: 0.4,
       system: VISION_SYSTEM,
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'url', url: imageUrl } },
-          { type: 'text', text: '請分析這張構圖參考圖,輸出 JSON。' },
+          { type: 'image', source: { type: 'base64', media_type, data } },
+          { type: 'text', text: '請分析這張構圖參考圖,輸出 JSON (不要 markdown)。' },
         ],
       }],
     });
@@ -87,7 +107,13 @@ async function analyzeComposition(imageUrl) {
       person_description: parsed.person_description || '',
     };
   } catch (e) {
-    return { composition_prompt: '', has_person: false, person_description: '' };
+    console.error('[analyzeComposition] failed:', e.message);
+    return {
+      composition_prompt: '',
+      has_person: false,
+      person_description: '',
+      composition_error: e.message, // debug 用,正常情況不會塞
+    };
   }
 }
 
@@ -150,6 +176,7 @@ export async function POST(req) {
       composition_prompt: visionResult.composition_prompt,
       has_person: visionResult.has_person,
       person_description: visionResult.person_description,
+      composition_error: visionResult.composition_error || '',
     });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
