@@ -2,6 +2,7 @@
 // 若有 compositionRefUrl,額外用 Claude vision 分析構圖 + 偵測人物
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { callJSON } from '@/lib/llm.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -50,33 +51,42 @@ const VISION_SYSTEM = `你是專業的廣告構圖分析師。分析使用者上
   "person_description": "中文一句話描述人物:性別 / 年齡感 / 穿著風格 / 姿勢 / 表情 / 與鏡頭關係 (≤40 字)。若 has_person=false 此欄回空字串"
 }`;
 
+function tolerantParse(text) {
+  let s = (text || '').trim();
+  const block = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (block) s = block[1].trim();
+  try { return JSON.parse(s); } catch (_) {}
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(s.slice(first, last + 1)); } catch (_) {}
+  }
+  throw new Error('Failed to parse JSON: ' + s.slice(0, 200));
+}
+
 async function analyzeComposition(imageUrl) {
-  const resp = await client().messages.create({
-    model: MODEL,
-    max_tokens: 1000,
-    temperature: 0.4,
-    system: VISION_SYSTEM,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'url', url: imageUrl } },
-        { type: 'text', text: '請分析這張構圖參考圖,輸出 JSON。' },
-      ],
-    }],
-  });
-  const text = resp.content.map((b) => b.text || '').join('').trim();
-  let jsonStr = text;
-  const block = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (block) jsonStr = block[1].trim();
   try {
-    const parsed = JSON.parse(jsonStr);
+    const resp = await client().messages.create({
+      model: MODEL,
+      max_tokens: 1000,
+      temperature: 0.4,
+      system: VISION_SYSTEM,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url: imageUrl } },
+          { type: 'text', text: '請分析這張構圖參考圖,輸出 JSON。' },
+        ],
+      }],
+    });
+    const text = resp.content.map((b) => b.text || '').join('');
+    const parsed = tolerantParse(text);
     return {
       composition_prompt: parsed.composition_prompt || '',
       has_person: !!parsed.has_person,
       person_description: parsed.person_description || '',
     };
   } catch (e) {
-    // 解析失敗就回空,不阻斷主流程
     return { composition_prompt: '', has_person: false, person_description: '' };
   }
 }
@@ -92,20 +102,11 @@ ${product.features || '(未提供)'}
 ${product.promo_offer ? `**優惠/活動**: ${product.promo_offer}` : ''}
 ${product.image_focus ? `**視覺方向偏好**: ${product.image_focus}` : ''}
 
-請出 3 個差異化標題 + 1 個副標 + 短版圖中文案 + 長版圖中文案 + 完整貼文文案。`;
+請出 3 個差異化標題 + 1 個副標 + 短版圖中文案 + 長版圖中文案 + 完整貼文文案。直接回 JSON,不要任何前後說明。`;
 
-  const resp = await client().messages.create({
-    model: MODEL,
-    max_tokens: 2000,
-    temperature: 0.9,
-    system: SUGGEST_SYSTEM,
-    messages: [{ role: 'user', content: user }],
+  const parsed = await callJSON({
+    system: SUGGEST_SYSTEM, user, maxTokens: 2000, temperature: 0.9,
   });
-  const text = resp.content.map((b) => b.text || '').join('').trim();
-  let jsonStr = text;
-  const block = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (block) jsonStr = block[1].trim();
-  const parsed = JSON.parse(jsonStr);
   if (!Array.isArray(parsed.titles) || parsed.titles.length < 1) {
     throw new Error('LLM 回傳格式錯誤:缺少 titles 陣列');
   }
