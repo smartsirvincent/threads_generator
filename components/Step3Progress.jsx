@@ -5,21 +5,21 @@ import { useEffect, useRef, useState } from 'react';
 const IMAGE_CONCURRENCY = 4;
 const TEXT_BATCH_SIZE = 8;
 const MAX_RETRIES = 3;
+const POLL_INTERVAL_MS = 3000;
+const POLL_MAX_ATTEMPTS = 80; // 80 * 3s = 4 分鐘 timeout
 
 /**
  * 安全 fetch JSON:
  * - 非 JSON 回應視為 transient error,可重試
  * - 5xx / 4xx 也丟錯,給上層決定要不要重試
  */
-async function safeFetchJSON(url, body, { retries = MAX_RETRIES, label = '' } = {}) {
+async function safeFetchJSON(url, body, { retries = MAX_RETRIES, label = '', method = 'POST' } = {}) {
   let lastErr;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const opts = { method, headers: { 'content-type': 'application/json' } };
+      if (method === 'POST' && body !== undefined) opts.body = JSON.stringify(body);
+      const res = await fetch(url, opts);
       const text = await res.text();
       let data;
       try {
@@ -38,6 +38,43 @@ async function safeFetchJSON(url, body, { retries = MAX_RETRIES, label = '' } = 
     }
   }
   throw lastErr;
+}
+
+/**
+ * 3 步驟生圖:submit (拿 taskId) → poll (輪詢直到完成) → finalize (下載+上傳 Cloudinary)
+ * 每個 endpoint 都 <30s,絕對不會被 Vercel 60s 砍
+ */
+async function genImageChunked({ prompt, refs, brand, aspect_ratio = '1:1', cancelRef }) {
+  // (1) submit
+  const sub = await safeFetchJSON('/api/gen-image/submit', {
+    prompt, referenceImages: refs, aspect_ratio,
+  }, { label: 'gen-image/submit', retries: 2 });
+  const taskId = sub.taskId;
+  if (!taskId) throw new Error('submit 沒回 taskId');
+
+  // (2) poll
+  let kieUrl = null;
+  for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
+    if (cancelRef?.current) throw new Error('cancelled');
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    let p;
+    try {
+      p = await safeFetchJSON(`/api/gen-image/poll?taskId=${taskId}`, undefined, {
+        label: 'gen-image/poll', retries: 2, method: 'GET',
+      });
+    } catch (e) {
+      continue; // 單次 poll 失敗不致命,下輪再試
+    }
+    if (p.state === 'success' && p.kieUrl) { kieUrl = p.kieUrl; break; }
+    if (p.state === 'fail') throw new Error(p.error || 'KIE 生成失敗');
+  }
+  if (!kieUrl) throw new Error('生圖輪詢逾時 (>4 分鐘)');
+
+  // (3) finalize:下載 + 上傳 Cloudinary
+  const fin = await safeFetchJSON('/api/gen-image/finalize', { kieUrl, brand }, {
+    label: 'gen-image/finalize', retries: 2,
+  });
+  return { url: fin.url };
 }
 
 export default function Step3Progress({ input, themes, onDone, onBack }) {
@@ -187,13 +224,13 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         }
 
         try {
-          const d = await safeFetchJSON('/api/gen-image', {
+          const d = await genImageChunked({
             prompt: t.prompt,
-            referenceImages: t.refs,
-            size: '1:1',
+            refs: t.refs,
             brand: input.brand,
-            themeName: t.themeName,
-          }, { label: 'gen-image', retries: 2 });
+            aspect_ratio: '1:1',
+            cancelRef,
+          });
           const post = postsByTheme[t.themeName]?.[t.postIndex];
           if (post) post.AI圖 = d.url;
           setImageState((s) => ({
@@ -276,13 +313,13 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
         }
 
         try {
-          const d = await safeFetchJSON('/api/gen-image', {
+          const d = await genImageChunked({
             prompt: t.prompt,
-            referenceImages: t.refs,
-            size: '1:1',
+            refs: t.refs,
             brand: input.brand,
-            themeName: t.themeName,
-          }, { label: 'gen-image-regen', retries: 2 });
+            aspect_ratio: '1:1',
+            cancelRef,
+          });
           const post = postsByThemeState[t.themeName]?.[t.postIndex];
           if (post) post.AI圖 = d.url;
           setImageState((s) => ({
