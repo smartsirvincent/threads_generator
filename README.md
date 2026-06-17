@@ -159,3 +159,4 @@ threads-generator/
 | KIE GPT Image 2（含圖主題約 1/6）| ~$0.04/張 | ~$0.6 | ~$1.3 |
 | Cloudinary | 免費 25GB | $0 | $0 |
 | **總計** | | **~$1.1** | **~$2.3** |
+- auto-deploy connected: 2026-06-17 22:31
