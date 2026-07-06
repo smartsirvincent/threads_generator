@@ -21,6 +21,7 @@ export default function RootLayout({ children }) {
               <NavLink href="/text" icon="📝" label="文字貼文" />
               <NavLink href="/image-plan" icon="🖼️" label="圖片貼文" />
               <NavLink href="/material" icon="✨" label="素材產生" />
+              <NavLink href="/yimei" icon="💉" label="醫美素材AI生成" />
             </nav>
           </div>
         </header>

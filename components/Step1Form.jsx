@@ -43,8 +43,21 @@ function buildPayload(input) {
       .map((s) => s.trim())
       .filter(Boolean),
     image_theme_strategy: input.image_theme_strategy === 'per_sku' ? 'per_sku' : 'shared',
+    industry: input.industry === 'medical_aesthetics' ? 'medical_aesthetics' : 'general',
+    clinic: input.clinic && typeof input.clinic === 'object' ? input.clinic : {},
   };
 }
+
+const CLINIC_FIELDS = [
+  { key: 'name_zh', label: '診所中文名', ph: '泰國醫美 Best Friend' },
+  { key: 'name', label: '診所英文名', ph: 'Best Friend Clinic' },
+  { key: 'location', label: '地點', ph: '泰國曼谷（近 BTS）' },
+  { key: 'certifications', label: '認證 / 資質', ph: 'KFDA / CE / FDA 認證儀器、合法執照…', long: true },
+  { key: 'doctor_team', label: '醫療團隊', ph: '自有醫師團隊、中文醫療翻譯全程…', long: true },
+  { key: 'service', label: '服務', ph: '中文地陪、接送全包、LINE 售後…', long: true },
+  { key: 'package', label: '旅遊套餐 / 方案', ph: '變美旅遊二日套餐、5,000 醫美券…', long: true },
+  { key: 'line', label: 'LINE / 聯絡', ph: 'LINE 官方帳號或連結（選填）' },
+];
 
 export default function Step1Form({
   input,
@@ -314,7 +327,7 @@ export default function Step1Form({
             <h2 className="text-lg font-semibold text-stone-900">品牌設定</h2>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-stone-500">範例:</span>
-              {Object.keys({ '87 烤魚': 1, Infuz: 1, 瑞際: 1 }).map((name) => (
+              {Object.keys({ 'BEST FRIEND': 1 }).map((name) => (
                 <button
                   key={name}
                   type="button"
@@ -474,6 +487,60 @@ export default function Step1Form({
             />
           </div>
         </div>
+
+        {/* ===== 產業別 ===== */}
+        <div className="rounded-lg border border-rose-100 bg-rose-50/40 p-3">
+          <label className="label mb-2">產業別 <span className="text-xs font-normal text-stone-500">（醫美會切換成療程/膚況視覺 + 診所信任感文案）</span></label>
+          <div className="flex flex-wrap gap-3">
+            {[
+              { key: 'general', label: '🍽 一般 / 餐飲 / 電商', desc: '產品為主體，保留包裝原貌' },
+              { key: 'medical_aesthetics', label: '💉 醫美 / 診所', desc: '療程/膚況為主體，走水光肌+溫暖診間' },
+            ].map((s) => (
+              <label key={s.key} className="flex flex-1 min-w-[220px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
+                <input
+                  type="radio"
+                  name="industry"
+                  checked={(input.industry || 'general') === s.key}
+                  onChange={() => update('industry', s.key)}
+                  className="mt-1 size-4 border-stone-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-stone-800">{s.label}</span>
+                  <span className="block text-[11px] text-stone-500">{s.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* ===== 診所資訊 (僅醫美) ===== */}
+        {(input.industry || 'general') === 'medical_aesthetics' && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-3">
+            <div className="text-sm font-semibold text-rose-900">🏥 診所資訊 <span className="text-xs font-normal text-stone-500">（融入文案信任感 + 生圖診間氛圍；不會憑空生出假認證標）</span></div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {CLINIC_FIELDS.map((f) => (
+                <div key={f.key} className={f.long ? 'md:col-span-2' : ''}>
+                  <label className="label text-xs">{f.label}</label>
+                  {f.long ? (
+                    <textarea
+                      className="input min-h-[54px] text-xs"
+                      value={(input.clinic || {})[f.key] || ''}
+                      onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
+                      placeholder={f.ph}
+                    />
+                  ) : (
+                    <input
+                      className="input text-sm"
+                      value={(input.clinic || {})[f.key] || ''}
+                      onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
+                      placeholder={f.ph}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="label">品牌總體賣點 * <span className="text-xs font-normal text-stone-500">（用於語錄/觀點/教學等不指向特定 SKU 的主題）</span></label>

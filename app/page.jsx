@@ -35,6 +35,26 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ===== 醫美素材AI生成入口 ===== */}
+      <section className="rounded-2xl border-2 border-dashed border-rose-300 bg-rose-50/40 p-6">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-rose-800">
+              💉 醫美素材AI生成
+            </h2>
+            <p className="mt-1 text-xs text-rose-700">
+              醫美診所專用 — 內建 11 個療程 + 診所資訊，選療程即出標題文案 + 三比例素材（水光肌 × 溫暖診間，醫療廣告合規）。療程照片可不傳。
+            </p>
+          </div>
+          <Link
+            href="/yimei"
+            className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700"
+          >
+            進入醫美素材間 →
+          </Link>
+        </div>
+      </section>
+
       {/* ===== 三大功能卡片 ===== */}
       <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <EntryCard

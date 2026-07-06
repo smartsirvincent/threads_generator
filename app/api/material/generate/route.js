@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 import { submitImageV2, pollImageV2, downloadImage } from '@/lib/kie-image.js';
 import { uploadToCloudinary, hasCloudinary } from '@/lib/cloudinary.js';
+import { isMedical, MEDICAL_AESTHETIC_STYLE, MEDICAL_DEFAULT_PERSON, MEDICAL_PROMO_STYLE, clinicContextText } from '@/lib/verticals.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -122,6 +123,89 @@ function buildProductPrompt({
   return parts.join(' ');
 }
 
+// ====================================================================
+// 醫美 (medical aesthetics) 專用生圖 prompt
+// 差異:主體是「療程/膚況」而非實體包裝;參考圖為選填;視覺走水光肌+溫暖診所信任感。
+// 若 referenceIsProduct=true (例:德國天使肉毒包瓶、儀器) 才套用嚴格保留原貌規則。
+// ====================================================================
+function buildMedicalPrompt({
+  product, title, subtitle, copyShort, copyLong, brand, brand_persona,
+  useLogo, hasCompositionRef, textMode,
+  includePerson, personDescription, compositionPrompt,
+  hasReference, referenceIsProduct, clinic,
+  materialType, scenePrompt,
+}) {
+  const parts = [];
+  const isPromo = materialType === 'promo';
+
+  const treatment = product?.name ? `the aesthetic-medicine treatment / skin outcome "${product.name}"` : 'an aesthetic-medicine skin outcome';
+  parts.push(`Create a high-end medical-aesthetics (醫美) ${isPromo ? 'promotional / direct-response' : 'brand-image'} social ad visual for ${treatment}.`);
+  if (product?.features) parts.push(`Treatment context (for mood, do NOT render as text): ${product.features.slice(0, 220)}`);
+  if (product?.image_focus) parts.push(`Visual emphasis: ${product.image_focus}`);
+  if (product?.promo_offer) parts.push(`Promotional context (only render if it appears in the allowed text list below): ${product.promo_offer}`);
+
+  // 醫美視覺基調
+  parts.push(MEDICAL_AESTHETIC_STYLE);
+  if (isPromo) parts.push(MEDICAL_PROMO_STYLE);
+
+  // 指定情景 (scene)
+  const scene = (scenePrompt || '').trim();
+  if (scene) parts.push(`SCENE / SETTING: ${scene}`);
+
+  // 文字渲染 (沿用嚴格的 only-this-text 邏輯)
+  parts.push(...buildTextRenderInstructions({ textMode, title, subtitle, copyShort, copyLong }));
+
+  if (brand) parts.push(`Clinic brand vibe: ${brand}.`);
+  if (brand_persona) parts.push(`Brand personality: ${brand_persona.slice(0, 60)}.`);
+
+  // 診所信任感 (環境暗示,不寫成字)
+  const clinicText = clinicContextText(clinic);
+  if (clinicText) {
+    parts.push(`Clinic trust cues to imply through the SETTING and mood only (never printed as on-image text): a legitimate, warm, professional Bangkok skin clinic — clean modern treatment room or cozy consultation lounge, soft warm lighting, feeling of being safely cared for by real doctors. Reference facts: ${clinicText.replace(/\n/g, ' / ').slice(0, 300)}`);
+  }
+
+  // 人物:醫美主體大多是人;預設帶入透亮膚況女性
+  if (includePerson) {
+    const desc = (personDescription || '').trim() || MEDICAL_DEFAULT_PERSON;
+    parts.push(`Feature a person as the hero: ${desc}. Focus on realistic, radiant, healthy skin with natural texture (visible pores kept, no plastic over-smoothing). Natural, confident, relaxed expression. This is beauty/skincare photography, tasteful and elegant.`);
+  } else {
+    parts.push('No human figure required — build a still-life / environment composition (e.g. elegant clinic corner, skincare-adjacent props, soft fabric, marble, flowers) that conveys the treatment benefit abstractly.');
+  }
+
+  // 構圖描述
+  const compHint = (compositionPrompt || '').trim();
+  if (hasCompositionRef && compHint) {
+    parts.push(`Composition guidance (mirror FRAMING / ANGLE / LAYOUT only, not specific content): ${compHint}`);
+  }
+
+  // 參考圖角色說明
+  const refRoles = [];
+  if (hasReference) refRoles.push(referenceIsProduct
+    ? '[product/device/vial appearance source]'
+    : '[subject or mood reference — a face, skin, model or scene to take inspiration from, NOT to copy exactly]');
+  if (useLogo) refRoles.push('[clinic logo to include subtly]');
+  if (hasCompositionRef) refRoles.push('[composition / layout inspiration]');
+  if (refRoles.length) {
+    parts.push(`Reference images in order: ${refRoles.map((r, i) => `[${i + 1}] ${r.slice(1, -1)}`).join(', ')}.`);
+  }
+
+  if (useLogo) {
+    parts.push('Include the clinic logo subtly in a corner. Do not distort or invent variations of the logo.');
+  } else {
+    parts.push('STRICT: NO clinic name, NO brand name as invented text, NO fake certification badges, NO invented logos anywhere in the image.');
+  }
+
+  // 只有「參考圖確實是實體品牌產品」時,才套用嚴格保留原貌 (呼應包裝忠實原則)
+  if (hasReference && referenceIsProduct) {
+    parts.push('CRITICAL PRODUCT FIDELITY: The reference is a real physical product (vial / box / device). Preserve its EXACT original colors, shape, packaging design, label artwork, and any printed logos or text. Do NOT recolor, redesign, relabel, or invent packaging variants — it must look identical to the reference. This overrides other creative direction.');
+  } else if (hasReference) {
+    parts.push('The reference image is only a SUBJECT / MOOD inspiration (a face, skin or scene). Do NOT copy it exactly and do NOT reproduce any real person\'s identity — create a fresh, original beauty composition inspired by its vibe.');
+  }
+
+  parts.push('Photorealistic, high-quality, editorial beauty-ad grade, social-media ready, conversion-focused but tasteful and compliant.');
+  return parts.join(' ');
+}
+
 const SIZE_MAP = [
   { target: '1:1', kieAr: '1:1', cloudinaryAr: null },
   { target: '9:16', kieAr: '9:16', cloudinaryAr: null },
@@ -157,32 +241,64 @@ export async function POST(req) {
       includePerson = false,
       personDescription = '',
       compositionPrompt = '',
+      // 產業別 + 醫美專用
+      industry = 'general',
+      clinic = null,
+      referenceIsProduct = false,
+      materialType = 'brand', // 'brand' | 'promo'
+      scenePrompt = '',
     } = await req.json();
 
-    if (!refUrl || typeof refUrl !== 'string') {
+    const medical = isMedical(industry);
+    const hasReference = !!(refUrl && typeof refUrl === 'string');
+
+    // 醫美療程大多沒有實體包裝,參考圖為選填;一般模式仍要求要有參考圖
+    if (!medical && !hasReference) {
       return NextResponse.json({ error: 'refUrl required' }, { status: 400 });
     }
 
     const mode = TEXT_MODES.has(textMode) ? textMode : 'title_sub';
 
-    const inputUrls = [refUrl];
+    const inputUrls = [];
+    if (hasReference) inputUrls.push(refUrl);
     if (useLogo && logoUrl) inputUrls.push(logoUrl);
     if (compositionRefUrl) inputUrls.push(compositionRefUrl);
 
-    const basePrompt = product
-      ? buildProductPrompt({
-          product, title, subtitle,
-          copyShort: copyShort || copy || '',
-          copyLong: copyLong || copy || '',
-          brand, brand_persona,
-          useLogo: !!(useLogo && logoUrl),
-          hasCompositionRef: !!compositionRefUrl,
-          textMode: mode,
-          includePerson: !!includePerson,
-          personDescription,
-          compositionPrompt,
-        })
-      : STYLE_PROMPT;
+    let basePrompt;
+    if (product && medical) {
+      basePrompt = buildMedicalPrompt({
+        product, title, subtitle,
+        copyShort: copyShort || copy || '',
+        copyLong: copyLong || copy || '',
+        brand, brand_persona,
+        useLogo: !!(useLogo && logoUrl),
+        hasCompositionRef: !!compositionRefUrl,
+        textMode: mode,
+        includePerson: !!includePerson,
+        personDescription,
+        compositionPrompt,
+        hasReference,
+        referenceIsProduct: !!referenceIsProduct,
+        clinic,
+        materialType: materialType === 'promo' ? 'promo' : 'brand',
+        scenePrompt,
+      });
+    } else if (product) {
+      basePrompt = buildProductPrompt({
+        product, title, subtitle,
+        copyShort: copyShort || copy || '',
+        copyLong: copyLong || copy || '',
+        brand, brand_persona,
+        useLogo: !!(useLogo && logoUrl),
+        hasCompositionRef: !!compositionRefUrl,
+        textMode: mode,
+        includePerson: !!includePerson,
+        personDescription,
+        compositionPrompt,
+      });
+    } else {
+      basePrompt = STYLE_PROMPT;
+    }
     const prompt = extraPrompt ? `${basePrompt}\n\nExtra direction: ${extraPrompt}` : basePrompt;
 
     const results = await Promise.all(SIZE_MAP.map(async (spec) => {

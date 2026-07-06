@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { callJSON } from '@/lib/llm.js';
+import { isMedical, clinicContextText } from '@/lib/verticals.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -41,6 +42,51 @@ const SUGGEST_SYSTEM = `你是專精台灣社群素材文案的策略師,擅長�
 - copy_short 是要放進圖裡的短文字,要乾淨好讀
 - copy_long 是要放進圖裡的長文字,適合文字很重的廣告排版
 - copy 是 IG/FB 貼文用的完整文案 (圖外的文字)`;
+
+const SUGGEST_SYSTEM_MEDICAL = `你是專精台灣醫美診所社群素材的文案策略師,擅長為單張醫美視覺廣告寫主標 + 副標 + 兩種長度的文案。這是跨國(泰國曼谷)醫美診所,主打「像朋友一樣、費用透明、中文全程陪同、旅遊順便變美」。
+
+**輸出 JSON 格式 (嚴格遵守)**:
+{
+  "titles": [
+    "標題 1 (≤12 字,療癒/自信/膚況承諾角度)",
+    "標題 2 (角度不同,例如痛點問題式:鬆弛/暗沉/凹陷)",
+    "標題 3 (角度不同,例如旅遊+變美的情境式)"
+  ],
+  "subtitle": "副標 (≤20 字,補強療程效果、旅遊套餐或 5,000 醫美券)",
+  "copy_short": "短版圖中文案 (20-40 字,1-2 行,乾淨好讀,可帶療程重點或安心感)",
+  "copy_long": "長版圖中文案 (60-100 字,適合文字重的廣告版型,把療程效果+診所信任感+CTA 帶到)",
+  "copy": "完整貼文文案 (60-120 字,IG/FB 發文用,口語溫暖、不硬推銷,可含換行+hashtag)"
+}
+
+規則:
+- 用「好朋友般真誠、溫暖、務實、誠實透明」的口吻,短句、口語,不浮誇、不硬推銷
+- **醫療廣告合規**:不用「保證見效/永久/最便宜/第一/絕對」等誇大或絕對字眼;不承諾療效;講「自然、漸進、改善」而非「治好」
+- 標題要有差異化,3 個分別走不同角度 (膚況承諾 / 痛點 / 旅遊情境)
+- 標題不要超過 12 字 (圖片可讀性)
+- 可自然帶到:中文地陪與翻譯、費用透明、5,000 泰銖醫美券、曼谷旅遊順便變美
+- copy_short 放進圖裡要乾淨;copy_long 適合文字重的排版;copy 是圖外貼文`;
+
+const SUGGEST_SYSTEM_MEDICAL_PROMO = `你是專精台灣醫美診所「促銷導購」的文案策略師,為單張醫美促銷廣告寫主標 + 副標 + 兩種長度的文案。這是跨國(泰國曼谷)醫美診所,主打「像朋友一樣、費用透明、中文全程陪同、旅遊順便變美」。這一支要能「催單」。
+
+**輸出 JSON 格式 (嚴格遵守)**:
+{
+  "titles": [
+    "標題 1 (≤12 字,價格/優惠鉤子,例如帶數字或『5,000 券直接抵』)",
+    "標題 2 (角度不同,名額/檔期急迫感,例如『首團只接兩組』)",
+    "標題 3 (角度不同,行動導向,例如『私訊卡位』)"
+  ],
+  "subtitle": "副標 (≤20 字,把最強的價格/優惠/贈品講清楚)",
+  "copy_short": "短版圖中文案 (20-40 字,1-2 行,價格或優惠+一句 CTA)",
+  "copy_long": "長版圖中文案 (60-100 字,價格/優惠/名額/醫美券/CTA 全帶到,適合文字重的促銷版型)",
+  "copy": "完整貼文文案 (60-120 字,IG/FB 導購用,口語溫暖但有行動呼籲,可含換行+hashtag)"
+}
+
+規則:
+- 有促銷力道、有急迫感,但**口吻仍溫暖真誠、不油、不硬凹**(這個品牌反感話術)
+- **醫療廣告合規**:不用「保證見效/永久/最便宜/第一/絕對」等誇大或絕對字眼;不承諾療效
+- 善用真實賣點催單:每人 5,000 泰銖醫美券「直接抵、不限療程、不需湊額度」、二日套餐價(2-3 人 8,399/人起、4-9 人 6,299/人起)、名額限制、中文全程陪同
+- 標題要有差異化,3 個分別走不同角度 (價格 / 名額急迫 / 行動)
+- 標題不要超過 12 字;CTA 明確 (私訊 / LINE / 卡位)`;
 
 const VISION_SYSTEM = `你是專業的廣告構圖分析師。分析使用者上傳的構圖參考圖,輸出 (1) 一段中文構圖描述 prompt 給生圖 AI 模仿,(2) 偵測是否有人物,(3) 若有人物簡述其外觀。
 
@@ -117,21 +163,28 @@ async function analyzeComposition(imageUrl) {
   }
 }
 
-async function suggestCopy({ product, brand, brand_persona, audience }) {
+async function suggestCopy({ product, brand, brand_persona, audience, industry, clinic, materialType }) {
+  const medical = isMedical(industry);
+  const promo = materialType === 'promo';
+  const clinicText = medical ? clinicContextText(clinic) : '';
   const user = `**品牌**: ${brand || '(未提供)'}
 **品牌人格**: ${brand_persona || '(未提供)'}
 **受眾**: ${audience || '(一般大眾)'}
-
-**產品名**: ${product.name}
-**產品特色**:
+${clinicText ? `\n**診所資訊**:\n${clinicText}\n` : ''}
+**${medical ? '療程名' : '產品名'}**: ${product.name}
+**${medical ? '療程特色' : '產品特色'}**:
 ${product.features || '(未提供)'}
-${product.promo_offer ? `**優惠/活動**: ${product.promo_offer}` : ''}
+${product.promo_offer ? `**價格/優惠**: ${product.promo_offer}` : ''}
 ${product.image_focus ? `**視覺方向偏好**: ${product.image_focus}` : ''}
+${medical && promo ? '\n**素材類型**: 促銷型(要催單、帶價格/優惠/名額/CTA)' : ''}
 
 請出 3 個差異化標題 + 1 個副標 + 短版圖中文案 + 長版圖中文案 + 完整貼文文案。直接回 JSON,不要任何前後說明。`;
 
+  const system = medical
+    ? (promo ? SUGGEST_SYSTEM_MEDICAL_PROMO : SUGGEST_SYSTEM_MEDICAL)
+    : SUGGEST_SYSTEM;
   const parsed = await callJSON({
-    system: SUGGEST_SYSTEM, user, maxTokens: 2000, temperature: 0.9,
+    system, user, maxTokens: 2000, temperature: 0.9,
   });
   if (!Array.isArray(parsed.titles) || parsed.titles.length < 1) {
     throw new Error('LLM 回傳格式錯誤:缺少 titles 陣列');
@@ -141,13 +194,34 @@ ${product.image_focus ? `**視覺方向偏好**: ${product.image_focus}` : ''}
 
 export async function POST(req) {
   try {
-    const { product, brand, brand_persona, audience, compositionRefUrl, dry_run } = await req.json();
+    const { product, brand, brand_persona, audience, compositionRefUrl, dry_run, industry = 'general', clinic = null, materialType = 'brand' } = await req.json();
     if (!product?.name) {
       return NextResponse.json({ error: '產品資訊不足' }, { status: 400 });
     }
 
+    const medical = isMedical(industry);
+    const promo = materialType === 'promo';
+
     if (dry_run) {
-      return NextResponse.json({
+      return NextResponse.json(medical ? (promo ? {
+        titles: [`${product.name} 限時價`, `首團只接兩組`, `5,000 券直接抵`],
+        subtitle: `[Dry-run] 2-3 人 8,399/人起`,
+        copy_short: `[Dry-run short] ${product.name}，每人 5,000 券直接抵`,
+        copy_long: `[Dry-run long] ${product.name}，名額有限、私訊卡位；中文全程陪同、費用透明`,
+        copy: `[Dry-run promo] ${brand || ''} 導購文案。\n\n#醫美 #曼谷 #限時`,
+        composition_prompt: compositionRefUrl ? 'Dry-run composition: bold promo beauty layout.' : '',
+        has_person: true,
+        person_description: '',
+      } : {
+        titles: [`${product.name} 的自然感`, `還在為鬆弛煩惱？`, `曼谷旅遊順便變美`],
+        subtitle: `[Dry-run] ${product.features?.slice(0, 30) || ''}`,
+        copy_short: `[Dry-run short] ${product.name}，自然、安心`,
+        copy_long: `[Dry-run long] ${product.name}，中文全程陪同、費用透明，每人 5,000 醫美券直接抵`,
+        copy: `[Dry-run] 完整文案，${brand || ''} 風格。\n\n#醫美 #曼谷`,
+        composition_prompt: compositionRefUrl ? 'Dry-run composition: soft beauty close-up, natural window light.' : '',
+        has_person: true,
+        person_description: '',
+      }) : {
         titles: [`${product.name} 來了`, `為什麼要選${product.name}`, `今晚就吃 ${product.name}`],
         subtitle: `[Dry-run] ${product.features?.slice(0, 30) || ''}`,
         copy_short: `[Dry-run short] ${product.name} 必吃`,
@@ -161,7 +235,7 @@ export async function POST(req) {
 
     // 並行跑 (1) 文案生成 (2) 視覺分析 (若有 compositionRefUrl)
     const [copyResult, visionResult] = await Promise.all([
-      suggestCopy({ product, brand, brand_persona, audience }),
+      suggestCopy({ product, brand, brand_persona, audience, industry, clinic, materialType }),
       compositionRefUrl
         ? analyzeComposition(compositionRefUrl).catch(() => ({ composition_prompt: '', has_person: false, person_description: '' }))
         : Promise.resolve({ composition_prompt: '', has_person: false, person_description: '' }),

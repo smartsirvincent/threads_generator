@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Step1Form from '@/components/Step1Form';
+import { medicalClinicProfile } from '@/lib/verticals.js';
 
 const EMPTY_INPUT = {
   brand: '',
@@ -12,6 +13,8 @@ const EMPTY_INPUT = {
   platforms: ['Threads'],
   monthly_total: 100,
   start_date: '',
+  industry: 'general',
+  clinic: {},
   products: [
     {
       name: '', features: '', images: [''], purchase_url: '',
@@ -29,21 +32,7 @@ const EMPTY_INPUT = {
 };
 
 const SAMPLES = {
-  '87 烤魚': {
-    brand: '87 霸氣烤魚火鍋',
-    brand_summary: '重慶萬州風「醃、烤、燉」三道工藝烤魚火鍋。',
-    audience: '25-40 歲愛吃辣的上班族、約會情侶、宵夜團體',
-    brand_persona: '霸氣、挑釁、台味黑色幽默。',
-    purchase_url: 'https://lin.ee/782qnzwo',
-    monthly_total: 150,
-    products: [
-      {
-        name: '金湯酸菜烤魚火鍋',
-        features: '金黃酸辣湯底，老酸菜與泡椒熬製。',
-        images: ['https://i.ibb.co/YBZM5G9N/image.jpg'],
-      },
-    ],
-  },
+  'BEST FRIEND': medicalClinicProfile(),
 };
 
 export default function BrandPage() {
