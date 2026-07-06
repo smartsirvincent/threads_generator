@@ -1,1238 +1,330 @@
 'use client';
 
+// 醫美素材 AI 生成 — 批次版
+// 療程來自品牌資料庫 (不用重填),多選 → 每個療程各自產一組 (AI 首選標題 + 3 比例)
+// LOGO 來自品牌資訊,只勾要不要帶
 import { useEffect, useState } from 'react';
-import { listProfiles, getProfile, getCloudIndex } from '@/lib/profile-store.js';
-import { isMedical, medicalClinicProfile, MEDICAL_PRODUCTS, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey } from '@/lib/verticals.js';
+import {
+  medicalClinicProfile, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey,
+} from '@/lib/verticals.js';
 
-export default function MaterialPage({ lockIndustry = null }) {
-  const [step, setStep] = useState(1);
-  const [product, setProduct] = useState(initialProduct());
-  const [brandContext, setBrandContext] = useState({ brand: '', brand_persona: '', audience: '' });
-  // 產業別 + 診所資訊 (醫美模式)
-  const locked = !!lockIndustry;
-  const [industry, setIndustry] = useState(lockIndustry || 'general');
-  const [clinic, setClinic] = useState(lockIndustry === 'medical_aesthetics' ? medicalClinicProfile().clinic : null);
-  const [referenceIsProduct, setReferenceIsProduct] = useState(false);
-  const [materialType, setMaterialType] = useState('brand'); // 'brand' | 'promo'
-  const [scene, setScene] = useState('auto'); // 醫美情景 key
-  const medical = isMedical(industry);
-  const [productPhotoUrl, setProductPhotoUrl] = useState(null); // 上傳後拿到的 Cloudinary URL
-  const [productPhotoPreview, setProductPhotoPreview] = useState(null);
-  const [uploading, setUploading] = useState(false);
+const DEFAULT_PROFILE = medicalClinicProfile();
 
-  // 新增的廣告元素
-  const [logoUrl, setLogoUrl] = useState(null);
-  const [logoPreview, setLogoPreview] = useState(null);
-  const [useLogo, setUseLogo] = useState(false);
-  const [logoUploading, setLogoUploading] = useState(false);
+function firstLogo(profile) {
+  const bl = profile?.brand_logos;
+  if (Array.isArray(bl)) return bl[0] || '';
+  if (typeof bl === 'string') return bl.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || '';
+  return '';
+}
 
-  const [compositionRefUrl, setCompositionRefUrl] = useState(null);
-  const [compositionRefPreview, setCompositionRefPreview] = useState(null);
-  const [compRefUploading, setCompRefUploading] = useState(false);
+const TEXT_MODES = [
+  { key: 'none', label: '無文字' },
+  { key: 'title_sub', label: '主標+副標' },
+  { key: 'short', label: '文案少' },
+  { key: 'long', label: '文案多' },
+];
 
-  const [suggesting, setSuggesting] = useState(false);
-  const [suggestions, setSuggestions] = useState({
-    titles: [], subtitle: '', copy: '', copy_short: '', copy_long: '',
-    composition_prompt: '', has_person: false, person_description: '',
-  });
-  const [picked, setPicked] = useState({
-    title: '', subtitle: '', copy: '', copy_short: '', copy_long: '',
-  });
-  // textMode: 'none' | 'title_sub' | 'short' | 'long'
+export default function MaterialPage({ heading }) {
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
+  const [loadingDb, setLoadingDb] = useState(true);
+  const treatments = (profile.products || []).filter((p) => p?.name);
+
+  const [selected, setSelected] = useState(() => new Set());
+  const [materialType, setMaterialType] = useState('brand');
+  const [scene, setScene] = useState('auto');
   const [textMode, setTextMode] = useState('title_sub');
-  const [includePerson, setIncludePerson] = useState(false);
-  const [personDescription, setPersonDescription] = useState('');
-  const [compositionPrompt, setCompositionPrompt] = useState('');
+  const [includePerson, setIncludePerson] = useState(true);
+  const [useLogo, setUseLogo] = useState(false);
   const [extraPrompt, setExtraPrompt] = useState('');
 
-  const [generating, setGenerating] = useState(false);
+  const [step, setStep] = useState(1); // 1 設定 / 2 生成中 / 3 結果
+  const [progress, setProgress] = useState({ done: 0, total: 0, current: '' });
   const [results, setResults] = useState([]);
   const [error, setError] = useState('');
 
+  const clinic = profile.clinic || null;
+  const brandLogo = firstLogo(profile);
+
+  // 自動載入品牌資料庫 (最新的雲端存檔),抓不到就用內建 BEST FRIEND 範本
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/profiles/list', { cache: 'no-store' });
+        const data = await res.json();
+        const list = res.ok && Array.isArray(data.profiles) ? data.profiles : [];
+        if (list.length > 0 && list[0]?.url) {
+          const r = await fetch(list[0].url, { cache: 'no-store' });
+          if (r.ok) {
+            const w = await r.json();
+            const prof = w.profile || w;
+            if (prof && Array.isArray(prof.products) && prof.products.length > 0) {
+              setProfile({ ...DEFAULT_PROFILE, ...prof });
+            }
+          }
+        }
+      } catch (_) { /* 用預設 */ } finally {
+        setLoadingDb(false);
+      }
+    })();
+  }, []);
+
+  function toggle(i) {
+    setSelected((s) => {
+      const n = new Set(s);
+      n.has(i) ? n.delete(i) : n.add(i);
+      return n;
+    });
+  }
+  function selectAll() { setSelected(new Set(treatments.map((_, i) => i))); }
+  function clearAll() { setSelected(new Set()); }
+
+  async function generate() {
+    const chosen = [...selected].map((i) => treatments[i]).filter(Boolean);
+    if (chosen.length === 0) { setError('請至少勾選一個療程'); return; }
+    setError('');
+    setResults([]);
+    setStep(2);
+    setProgress({ done: 0, total: chosen.length, current: chosen[0]?.name || '' });
+
+    const out = [];
+    for (let idx = 0; idx < chosen.length; idx++) {
+      const t = chosen[idx];
+      setProgress({ done: idx, total: chosen.length, current: t.name });
+      const product = {
+        name: t.name, features: t.features || '',
+        promo_offer: t.promo_offer || '', image_focus: t.image_focus || '',
+      };
+      try {
+        // 1) AI 出標題 + 文案 (取首選)
+        const sres = await fetch('/api/material/suggest', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            product, brand: profile.brand, brand_persona: profile.brand_persona,
+            audience: profile.audience, industry: 'medical_aesthetics', clinic, materialType,
+          }),
+        });
+        const sdata = await sres.json();
+        if (!sres.ok) throw new Error(sdata.error || `文案 HTTP ${sres.status}`);
+        const title = sdata.titles?.[0] || t.name;
+        const subtitle = sdata.subtitle || '';
+
+        // 2) 生 3 比例
+        const gres = await fetch('/api/material/generate', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            refUrl: null, product, title, subtitle,
+            copy: sdata.copy || '', copyShort: sdata.copy_short || '', copyLong: sdata.copy_long || '',
+            brand: profile.brand, brand_persona: profile.brand_persona,
+            logoUrl: useLogo ? brandLogo : null, useLogo: !!(useLogo && brandLogo),
+            textMode, includePerson, personDescription: '',
+            industry: 'medical_aesthetics', clinic, materialType,
+            scenePrompt: medicalSceneByKey(scene).en, extraPrompt,
+          }),
+        });
+        const gdata = await gres.json();
+        if (!gres.ok) throw new Error(gdata.error || `生圖 HTTP ${gres.status}`);
+        out.push({ treatment: t.name, title, subtitle, copy: sdata.copy || '', results: gdata.results || [], error: null });
+      } catch (e) {
+        out.push({ treatment: t.name, error: e.message, results: [] });
+      }
+      setResults([...out]);
+    }
+    setProgress({ done: chosen.length, total: chosen.length, current: '' });
+    setStep(3);
+  }
+
   return (
     <main className="space-y-6">
-      <div className={`card ${locked && medical ? 'border-rose-200 bg-rose-50/40' : ''}`}>
-        <h1 className="text-2xl font-semibold text-stone-900">
-          {locked && medical ? '💉 醫美素材AI生成' : '✨ 素材產生器'}
-        </h1>
+      <div className="card border-rose-200 bg-rose-50/40">
+        <h1 className="text-2xl font-semibold text-stone-900">{heading || '💉 醫美素材AI生成'}</h1>
         <p className="mt-2 text-sm text-stone-600">
-          {locked && medical
-            ? <>選療程 → AI 出標題 + 文案 → 一次生成 <strong>1:1 / 9:16 / 1.91:1</strong> 三種比例醫美素材（水光肌＋溫暖診間調性）</>
-            : <>選產品 → AI 出標題 + 文案 → 一次生成 <strong>1:1 / 9:16 / 1.91:1</strong> 三種比例素材</>}
+          從品牌資料庫<strong>勾選療程（可複選）</strong> → 每個療程各生一組（AI 首選標題 + <strong>1:1 / 9:16 / 1.91:1</strong>）。療程與 LOGO 都不用重填。
         </p>
       </div>
 
-      <Stepper current={step} />
-
       {step === 1 && (
-        <Step1Product
-          product={product} setProduct={setProduct}
-          brandContext={brandContext} setBrandContext={setBrandContext}
-          industry={industry} setIndustry={setIndustry}
-          clinic={clinic} setClinic={setClinic}
-          locked={locked}
-          materialType={materialType} setMaterialType={setMaterialType}
-          referenceIsProduct={referenceIsProduct} setReferenceIsProduct={setReferenceIsProduct}
-          productPhotoUrl={productPhotoUrl} setProductPhotoUrl={setProductPhotoUrl}
-          productPhotoPreview={productPhotoPreview} setProductPhotoPreview={setProductPhotoPreview}
-          uploading={uploading} setUploading={setUploading}
-          logoUrl={logoUrl} setLogoUrl={setLogoUrl}
-          logoPreview={logoPreview} setLogoPreview={setLogoPreview}
-          useLogo={useLogo} setUseLogo={setUseLogo}
-          logoUploading={logoUploading} setLogoUploading={setLogoUploading}
-          compositionRefUrl={compositionRefUrl} setCompositionRefUrl={setCompositionRefUrl}
-          compositionRefPreview={compositionRefPreview} setCompositionRefPreview={setCompositionRefPreview}
-          compRefUploading={compRefUploading} setCompRefUploading={setCompRefUploading}
-          error={error} setError={setError}
-          onNext={async () => {
-            if (!product.name?.trim()) { setError(medical ? '請至少填寫療程名稱' : '請至少填寫產品名稱'); return; }
-            if (!medical && !productPhotoUrl) { setError('請上傳產品照片'); return; }
-            setError('');
-            setSuggesting(true);
-            try {
-              const res = await fetch('/api/material/suggest', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ product, ...brandContext, industry, clinic, materialType, compositionRefUrl }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-              setSuggestions(data);
-              setPicked({
-                title: data.titles?.[0] || '',
-                subtitle: data.subtitle || '',
-                copy: data.copy || '',
-                copy_short: data.copy_short || '',
-                copy_long: data.copy_long || '',
-              });
-              setCompositionPrompt(data.composition_prompt || '');
-              // 若構圖偵測到人物,預設打勾 + 帶入描述;醫美模式預設帶人物(膚況主體)
-              if ((data.has_person && compositionRefUrl) || medical) {
-                setIncludePerson(true);
-                setPersonDescription(data.person_description || '');
-              } else {
-                setIncludePerson(false);
-                setPersonDescription(data.person_description || '');
-              }
-              setStep(2);
-            } catch (e) {
-              setError('產生建議失敗:' + e.message);
-            } finally {
-              setSuggesting(false);
-            }
-          }}
-          loading={suggesting}
-        />
-      )}
+        <div className="space-y-4">
+          {/* 療程多選 */}
+          <div className="card space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-stone-900">
+                選療程 <span className="text-sm font-normal text-stone-500">（已選 {selected.size} / {treatments.length}）</span>
+              </h2>
+              <div className="flex items-center gap-2 text-xs">
+                <button type="button" onClick={selectAll} className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">全選</button>
+                <button type="button" onClick={clearAll} className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">清除</button>
+              </div>
+            </div>
+            {loadingDb && <p className="text-xs text-stone-400">載入品牌資料庫中…（先顯示內建範本）</p>}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {treatments.map((t, i) => {
+                const on = selected.has(i);
+                return (
+                  <label key={t.name + i}
+                    className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 ${on ? 'border-rose-500 bg-rose-50' : 'border-stone-200 hover:bg-stone-50'}`}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(i)}
+                      className="mt-0.5 size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-stone-800">{t.name}</span>
+                      {t.promo_offer && <span className="block truncate text-[11px] text-stone-500">{t.promo_offer}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-stone-400">療程來自「🏷 品牌資訊輸入」的療程資料庫；要改內容請去那裡編輯。</p>
+          </div>
 
-      {step === 2 && (
-        <Step2Suggest
-          suggestions={suggestions} picked={picked} setPicked={setPicked}
-          textMode={textMode} setTextMode={setTextMode}
-          includePerson={includePerson} setIncludePerson={setIncludePerson}
-          personDescription={personDescription} setPersonDescription={setPersonDescription}
-          compositionPrompt={compositionPrompt} setCompositionPrompt={setCompositionPrompt}
-          hasCompositionRef={!!compositionRefUrl}
-          compositionRefPreview={compositionRefPreview}
-          extraPrompt={extraPrompt} setExtraPrompt={setExtraPrompt}
-          medical={medical} scene={scene} setScene={setScene} materialType={materialType}
-          onBack={() => setStep(1)}
-          onRegen={async () => {
-            setSuggesting(true);
-            try {
-              const res = await fetch('/api/material/suggest', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ product, ...brandContext, industry, clinic, materialType, compositionRefUrl }),
-              });
-              const data = await res.json();
-              if (res.ok) {
-                setSuggestions(data);
-                setPicked({
-                  title: data.titles?.[0] || '',
-                  subtitle: data.subtitle || '',
-                  copy: data.copy || '',
-                  copy_short: data.copy_short || '',
-                  copy_long: data.copy_long || '',
-                });
-                setCompositionPrompt(data.composition_prompt || '');
-                if (data.has_person && compositionRefUrl) {
-                  setIncludePerson(true);
-                  setPersonDescription(data.person_description || '');
-                }
-              }
-            } finally { setSuggesting(false); }
-          }}
-          regenerating={suggesting}
-          onNext={async () => {
-            setStep(3);
-            setGenerating(true);
-            setError('');
-            try {
-              const res = await fetch('/api/material/generate', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  refUrl: productPhotoUrl,
-                  product,
-                  title: picked.title,
-                  subtitle: picked.subtitle,
-                  copy: picked.copy,
-                  copyShort: picked.copy_short,
-                  copyLong: picked.copy_long,
-                  brand: brandContext.brand,
-                  brand_persona: brandContext.brand_persona,
-                  logoUrl,
-                  useLogo,
-                  compositionRefUrl,
-                  textMode,
-                  includePerson,
-                  personDescription,
-                  compositionPrompt,
-                  extraPrompt,
-                  industry,
-                  clinic,
-                  referenceIsProduct,
-                  materialType,
-                  scenePrompt: medical ? medicalSceneByKey(scene).en : '',
-                }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-              setResults(data.results || []);
-              setStep(4);
-            } catch (e) {
-              setError(e.message);
-              setStep(2);
-            } finally { setGenerating(false); }
-          }}
-        />
-      )}
+          {/* 共用設定 */}
+          <div className="card space-y-4">
+            <h2 className="text-sm font-semibold text-stone-800">共用設定（套用到每個療程）</h2>
 
-      {step === 3 && (
-        <div className="card text-center">
-          {productPhotoPreview && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={productPhotoPreview} alt="product" className="mx-auto mb-4 max-h-48 rounded-lg" />
-          )}
-          <p className="text-lg text-stone-700">🎨 並行生成 3 種比例素材中…</p>
-          <p className="mt-1 text-xs text-stone-500">通常 60-90 秒</p>
+            <div>
+              <div className="label mb-1">素材類型</div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.values(MATERIAL_TYPES).map((mt) => {
+                  const on = materialType === mt.key;
+                  return (
+                    <label key={mt.key} className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 ${on ? 'border-rose-500 bg-rose-50' : 'border-stone-200 hover:bg-stone-50'}`}>
+                      <input type="radio" name="mt" checked={on} onChange={() => setMaterialType(mt.key)} className="mt-0.5 size-4 border-stone-300 text-rose-600 focus:ring-rose-500" />
+                      <span>
+                        <span className="block text-sm font-medium text-stone-800">{mt.key === 'promo' ? '🏷 ' : '✨ '}{mt.label}</span>
+                        <span className="block text-[11px] text-stone-500">{mt.hint}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="label mb-1">圖片情景</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {MEDICAL_SCENES.map((s) => {
+                  const on = scene === s.key;
+                  return (
+                    <button key={s.key} type="button" onClick={() => setScene(s.key)}
+                      className={`rounded-lg border px-2 py-2 text-xs ${on ? 'border-rose-500 bg-rose-100 font-medium text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                      {s.zh}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <div className="label mb-1">圖中文字</div>
+                <div className="flex flex-wrap gap-2">
+                  {TEXT_MODES.map((m) => {
+                    const on = textMode === m.key;
+                    return (
+                      <button key={m.key} type="button" onClick={() => setTextMode(m.key)}
+                        className={`rounded-md border px-2.5 py-1 text-xs ${on ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+                  <input type="checkbox" checked={includePerson} onChange={(e) => setIncludePerson(e.target.checked)} className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500" />
+                  圖中加入人物（膚況主體）
+                </label>
+                <label className={`flex items-center gap-2 text-sm ${brandLogo ? 'cursor-pointer text-stone-700' : 'text-stone-400'}`}>
+                  <input type="checkbox" checked={useLogo && !!brandLogo} disabled={!brandLogo} onChange={(e) => setUseLogo(e.target.checked)} className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500 disabled:opacity-40" />
+                  帶入品牌 LOGO
+                  {!brandLogo && <span className="text-[11px]">（先到「品牌資訊輸入」填 LOGO URL）</span>}
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="label text-xs">額外視覺指示（選填，套用到全部）</label>
+              <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} placeholder="例：柔光、黃昏色調、留白多一點" />
+            </div>
+          </div>
+
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">❌ {error}</div>}
+
+          <div className="flex justify-end">
+            <button type="button" onClick={generate} disabled={selected.size === 0}
+              className="btn-primary disabled:opacity-50">
+              生成 {selected.size} 個療程 × 3 比例 →
+            </button>
+          </div>
         </div>
       )}
 
-      {step === 4 && (
-        <Step4Results
-          results={results}
-          productPhotoPreview={productPhotoPreview}
-          picked={picked}
-          onReset={() => {
-            setStep(1);
-            setResults([]);
-            setSuggestions({ titles: [], subtitle: '', copy: '' });
-            setPicked({ title: '', subtitle: '', copy: '' });
-            setError('');
-          }}
-        />
+      {step === 2 && (
+        <div className="card space-y-3 text-center">
+          <p className="text-lg text-stone-700">🎨 批次生成中…</p>
+          <p className="text-sm text-stone-500">{progress.done} / {progress.total}　目前：{progress.current}</p>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-stone-100">
+            <div className="h-full bg-rose-500 transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
+          </div>
+          <p className="text-xs text-stone-400">每個療程約 60–90 秒，請耐心等候（已完成的會先出現在下方）。</p>
+          {results.length > 0 && <ResultList results={results} />}
+        </div>
       )}
 
-      {error && step !== 1 && step !== 2 && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          ❌ {error}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="card flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-stone-900">🎉 完成 {results.length} 個療程</h2>
+            <button onClick={() => { setStep(1); setResults([]); setError(''); }} className="text-sm text-stone-500 hover:text-stone-900">重新開始</button>
+          </div>
+          <ResultList results={results} />
         </div>
       )}
     </main>
   );
 }
 
-function initialProduct() {
-  return {
-    name: '', features: '', promo_offer: '', image_focus: '',
-  };
-}
-
-const STEPS = [
-  { n: 1, label: '廣告元素' },
-  { n: 2, label: 'AI 創意魔法' },
-  { n: 3, label: '生成中' },
-  { n: 4, label: '完成' },
-];
-
-function Stepper({ current }) {
-  return (
-    <ol className="flex items-center gap-2">
-      {STEPS.map((s, i) => {
-        const active = current === s.n;
-        const done = current > s.n;
-        return (
-          <li key={s.n} className="flex flex-1 items-center gap-2">
-            <div className={`flex size-7 items-center justify-center rounded-full text-xs font-semibold ${
-              done ? 'bg-emerald-500 text-white'
-                   : active ? 'bg-stone-900 text-white'
-                            : 'bg-stone-200 text-stone-500'}`}>
-              {done ? '✓' : s.n}
-            </div>
-            <span className={`text-sm ${active ? 'font-medium text-stone-900' : 'text-stone-500'}`}>
-              {s.label}
-            </span>
-            {i < STEPS.length - 1 && (
-              <div className={`mx-2 h-px flex-1 ${done ? 'bg-emerald-500' : 'bg-stone-200'}`} />
-            )}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-// ============== Step 1: 產品設定 ==============
-
-function Step1Product({
-  product, setProduct, brandContext, setBrandContext,
-  industry, setIndustry, clinic, setClinic, locked = false,
-  materialType, setMaterialType,
-  referenceIsProduct, setReferenceIsProduct,
-  productPhotoUrl, setProductPhotoUrl, productPhotoPreview, setProductPhotoPreview,
-  uploading, setUploading,
-  logoUrl, setLogoUrl, logoPreview, setLogoPreview, useLogo, setUseLogo,
-  logoUploading, setLogoUploading,
-  compositionRefUrl, setCompositionRefUrl, compositionRefPreview, setCompositionRefPreview,
-  compRefUploading, setCompRefUploading,
-  error, setError,
-  onNext, loading,
-}) {
-  async function uploadFile(file, onSuccess, onProgress) {
-    setError('');
-    if (!file) return;
-    onProgress(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/material/upload-ref', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      onSuccess(data.url);
-    } catch (e) {
-      setError('上傳失敗:' + e.message);
-    } finally {
-      onProgress(false);
-    }
-  }
-  const medterm = isMedical(industry);
-
-  function loadMedicalTemplate(skuIndex = null) {
-    const prof = medicalClinicProfile();
-    setIndustry('medical_aesthetics');
-    setClinic(prof.clinic);
-    setBrandContext({
-      brand: prof.brand || '',
-      brand_persona: prof.brand_persona || '',
-      audience: prof.audience || '',
-    });
-    const list = prof.products || [];
-    const chosen = skuIndex != null && list[skuIndex] ? list[skuIndex] : list[0];
-    if (chosen) {
-      setProduct({
-        name: chosen.name || '',
-        features: chosen.features || '',
-        promo_offer: chosen.promo_offer || '',
-        image_focus: chosen.image_focus || '',
-      });
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* ===== 醫美診所範本一鍵載入 ===== */}
-      <div className="card space-y-3 border-rose-200 bg-rose-50/40">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-rose-900">
-            {locked ? '💉 選一個療程開始（泰國醫美 Best Friend）' : '🏥 醫美診所範本（泰國醫美 Best Friend）'}
-          </h2>
-          {!locked && (
-            <label className="inline-flex items-center gap-1.5 text-xs text-rose-700">
-              <input
-                type="checkbox"
-                checked={medterm}
-                onChange={(e) => setIndustry(e.target.checked ? 'medical_aesthetics' : 'general')}
-                className="size-4 rounded border-rose-300 text-rose-600 focus:ring-rose-500"
-              />
-              醫美模式
-            </label>
-          )}
-        </div>
-        <p className="text-[11px] leading-relaxed text-rose-700/80">
-          點一個療程一鍵帶入名稱／特色／價格＋診所資訊。<strong>療程照片為選填</strong>，AI 會依水光肌＋溫暖診所調性生圖（不走餐飲那套熱氣/霸氣）。
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {MEDICAL_PRODUCTS.map((p, i) => (
-            <button
-              key={p.name}
-              type="button"
-              onClick={() => loadMedicalTemplate(i)}
-              className="rounded-md border border-rose-300 bg-white px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ===== 素材類型 (醫美) ===== */}
-      {medterm && (
-        <div className="card space-y-2">
-          <h3 className="text-sm font-semibold text-stone-800">🧭 素材類型</h3>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {Object.values(MATERIAL_TYPES).map((t) => {
-              const active = (materialType || 'brand') === t.key;
-              return (
-                <label key={t.key}
-                  className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 ${active ? 'border-rose-500 bg-rose-50' : 'border-stone-200 hover:bg-stone-50'}`}>
-                  <input
-                    type="radio"
-                    name="materialType"
-                    checked={active}
-                    onChange={() => setMaterialType(t.key)}
-                    className="mt-0.5 size-4 border-stone-300 text-rose-600 focus:ring-rose-500"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-stone-800">{t.key === 'promo' ? '🏷 ' : '✨ '}{t.label}</span>
-                    <span className="block text-[11px] text-stone-500">{t.hint}</span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <ProductLoader
-        onApply={(profile, prod) => {
-          if (prod) {
-            setProduct({
-              name: prod.name || '',
-              features: prod.features || '',
-              promo_offer: prod.promo_offer || '',
-              image_focus: prod.image_focus || '',
-            });
-            if (Array.isArray(prod.images) && prod.images[0]) {
-              setProductPhotoUrl(prod.images[0]);
-              setProductPhotoPreview(prod.images[0]);
-            }
-          }
-          if (profile) {
-            setBrandContext({
-              brand: profile.brand || '',
-              brand_persona: profile.brand_persona || '',
-              audience: profile.audience || '',
-            });
-            if (profile.industry && !locked) setIndustry(profile.industry);
-            const cl = profile.clinic || profile.industry_extra?.clinic || null;
-            if (cl) setClinic(cl);
-            // 帶入品牌 LOGO 並預設「合成到圖片中」
-            if (Array.isArray(profile.brand_logos) && profile.brand_logos[0]) {
-              setLogoUrl(profile.brand_logos[0]);
-              setLogoPreview(profile.brand_logos[0]);
-              setUseLogo(true);
-            }
-          }
-        }}
-      />
-
-      <div className="card space-y-4">
-        <h2 className="text-lg font-semibold text-stone-900">{medterm ? '療程資訊（手動填寫或從上方載入）' : '產品資訊（手動填寫或從上方載入）'}</h2>
-
-        <div>
-          <label className="label">{medterm ? '療程名稱 *' : '產品名稱 *'}</label>
-          <input
-            className="input"
-            value={product.name}
-            onChange={(e) => setProduct({ ...product, name: e.target.value })}
-            placeholder={medterm ? '例：海芙音波三代 HIFU' : '例：金湯酸菜烤魚火鍋'}
-          />
-        </div>
-
-        <div>
-          <label className="label">{medterm ? '療程特色 / 效果' : '產品特色 / 賣點'}</label>
-          <textarea
-            className="input min-h-[80px] text-sm"
-            value={product.features}
-            onChange={(e) => setProduct({ ...product, features: e.target.value })}
-            placeholder={medterm ? '一段話描述療程效果與適應症（改善鬆弛/凹陷/膚況…）' : '一段話描述主要賣點'}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="label">{medterm ? '價格 / 優惠（選填）' : '優惠/活動（選填）'}</label>
-            <input
-              className="input"
-              value={product.promo_offer}
-              onChange={(e) => setProduct({ ...product, promo_offer: e.target.value })}
-              placeholder={medterm ? '例：6,999／400 發 · 每人 5,000 醫美券可抵' : '例：買 2 送 1 / 中秋限定 7 折'}
-            />
-          </div>
-          <div>
-            <label className="label">視覺方向（選填）</label>
-            <input
-              className="input"
-              value={product.image_focus}
-              onChange={(e) => setProduct({ ...product, image_focus: e.target.value })}
-              placeholder={medterm ? '例：水光肌特寫、緊緻輪廓、溫暖診間' : '例：強調熱氣、夜店感、北歐極簡'}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="label">
-            {medterm
-              ? <>參考照片 <span className="text-xs font-normal text-stone-500">（選填,可上傳膚況/模特/儀器/包裝參考,不傳則由 AI 依療程概念生圖）</span></>
-              : <>產品照片 * <span className="text-xs font-normal text-stone-500">（上傳一張產品實拍照,AI 會以它為主體生新圖）</span></>}
-          </label>
-          <ProductPhotoUploader
-            url={productPhotoUrl}
-            preview={productPhotoPreview}
-            uploading={uploading}
-            onPick={async (file) => {
-              setError('');
-              if (!file) return;
-              setUploading(true);
-              const reader = new FileReader();
-              reader.onload = () => setProductPhotoPreview(reader.result);
-              reader.readAsDataURL(file);
-              try {
-                const form = new FormData();
-                form.append('file', file);
-                const res = await fetch('/api/material/upload-ref', { method: 'POST', body: form });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-                setProductPhotoUrl(data.url);
-              } catch (e) {
-                setError('上傳失敗:' + e.message);
-              } finally {
-                setUploading(false);
-              }
-            }}
-            onClear={() => {
-              setProductPhotoUrl(null);
-              setProductPhotoPreview(null);
-            }}
-          />
-          {medterm && productPhotoUrl && (
-            <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-              <input
-                type="checkbox"
-                checked={referenceIsProduct}
-                onChange={(e) => setReferenceIsProduct(e.target.checked)}
-                className="mt-0.5 size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500"
-              />
-              <span>
-                這張是<strong>實體品牌產品</strong>（藥劑瓶身／盒裝／儀器），要求 AI 完整保留原貌不改包裝。<br />
-                <span className="text-stone-400">若上傳的是膚況/模特/情境參考，請不要勾（AI 只取靈感、不照抄）。</span>
-              </span>
-            </label>
-          )}
-        </div>
-      </div>
-
-      {/* ===== 診所資訊 (醫美模式) ===== */}
-      {medterm && (
-        <ClinicPanel clinic={clinic} setClinic={setClinic} />
-      )}
-
-      {/* ===== 品牌 LOGO ===== */}
-      <div className="card space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-stone-700">🏷 品牌 LOGO（選填）</h3>
-          <label className="inline-flex items-center gap-2 text-xs text-stone-600">
-            <input
-              type="checkbox"
-              checked={useLogo}
-              onChange={(e) => setUseLogo(e.target.checked)}
-              disabled={!logoUrl}
-              className="size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-40"
-            />
-            合成到圖片中
-          </label>
-        </div>
-        <ImageUploader
-          url={logoUrl}
-          preview={logoPreview}
-          uploading={logoUploading}
-          placeholder="上傳品牌 LOGO（PNG 去背最佳）"
-          icon="🏷"
-          onPick={async (file) => {
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => setLogoPreview(reader.result);
-            reader.readAsDataURL(file);
-            await uploadFile(file, (url) => {
-              setLogoUrl(url);
-              setUseLogo(true);
-            }, setLogoUploading);
-          }}
-          onClear={() => {
-            setLogoUrl(null);
-            setLogoPreview(null);
-            setUseLogo(false);
-          }}
-        />
-        <p className="text-[11px] text-stone-500">
-          ⚠ 不上傳 LOGO 或不勾「合成到圖片中」時，AI 嚴禁自行合成任何 LOGO / 品牌標。
-        </p>
-      </div>
-
-      {/* ===== 構圖參考圖 ===== */}
-      <div className="card space-y-3">
-        <h3 className="text-sm font-medium text-stone-700">🖼 上傳照片模仿構圖（選填）</h3>
-        <ImageUploader
-          url={compositionRefUrl}
-          preview={compositionRefPreview}
-          uploading={compRefUploading}
-          placeholder="上傳一張你喜歡的構圖參考圖"
-          icon="🎨"
-          onPick={async (file) => {
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => setCompositionRefPreview(reader.result);
-            reader.readAsDataURL(file);
-            await uploadFile(file, setCompositionRefUrl, setCompRefUploading);
-          }}
-          onClear={() => {
-            setCompositionRefUrl(null);
-            setCompositionRefPreview(null);
-          }}
-        />
-        <p className="text-[11px] text-stone-500">
-          💡 只取構圖 / 鏡頭角度 / 排版佈局，不抄顏色不抄產品。沒上傳就讓 AI 自由發揮。
-        </p>
-      </div>
-
-      <div className="card space-y-3">
-        <h3 className="text-sm font-medium text-stone-700">品牌背景（選填,讓文案更貼合）</h3>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="label text-xs">品牌名</label>
-            <input className="input" value={brandContext.brand} onChange={(e) => setBrandContext({ ...brandContext, brand: e.target.value })} placeholder="例:87 烤魚" />
-          </div>
-          <div>
-            <label className="label text-xs">品牌人格</label>
-            <input className="input" value={brandContext.brand_persona} onChange={(e) => setBrandContext({ ...brandContext, brand_persona: e.target.value })} placeholder="霸氣台味/知性療癒…" />
-          </div>
-          <div>
-            <label className="label text-xs">受眾</label>
-            <input className="input" value={brandContext.audience} onChange={(e) => setBrandContext({ ...brandContext, audience: e.target.value })} placeholder="25-40 上班族…" />
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
-      )}
-
-      <div className="flex justify-end">
-        <button type="button" onClick={onNext} disabled={loading || uploading} className="btn-primary">
-          {loading ? '🔮 生成建議中…' : '下一步:AI 出標題+文案 →'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ProductPhotoUploader(props) {
-  return <ImageUploader {...props} icon="📷" placeholder="點擊或拖拉上傳參考照（選填）" />;
-}
-
-const CLINIC_FIELDS = [
-  { key: 'name_zh', label: '診所中文名', ph: '泰國醫美 Best Friend' },
-  { key: 'name', label: '診所英文名', ph: 'Best Friend Clinic' },
-  { key: 'location', label: '地點', ph: '泰國曼谷（近 BTS）' },
-  { key: 'certifications', label: '認證 / 資質', ph: 'KFDA / CE / FDA 認證儀器、合法執照…' },
-  { key: 'doctor_team', label: '醫療團隊', ph: '自有醫師團隊、中文醫療翻譯全程…' },
-  { key: 'service', label: '服務', ph: '中文地陪、接送全包、LINE 售後…' },
-  { key: 'package', label: '旅遊套餐 / 方案', ph: '變美旅遊二日套餐、5,000 醫美券…' },
-  { key: 'line', label: 'LINE / 聯絡', ph: 'LINE 官方帳號或連結（選填）' },
-];
-
-function ClinicPanel({ clinic, setClinic }) {
-  const c = clinic || {};
-  const [open, setOpen] = useState(true);
-  function upd(key, val) {
-    setClinic({ ...(clinic || {}), [key]: val });
-  }
-  return (
-    <div className="card space-y-3 border-rose-200 bg-rose-50/30">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-rose-900">🏥 診所資訊（會融入文案的信任感 + 生圖的診間氛圍）</h3>
-        <button type="button" onClick={() => setOpen(!open)} className="text-xs text-rose-600 hover:underline">
-          {open ? '收合' : '展開'}
-        </button>
-      </div>
-      {open && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {CLINIC_FIELDS.map((f) => {
-            const long = f.key === 'certifications' || f.key === 'doctor_team' || f.key === 'service' || f.key === 'package';
-            return (
-              <div key={f.key} className={long ? 'md:col-span-2' : ''}>
-                <label className="label text-xs">{f.label}</label>
-                {long ? (
-                  <textarea
-                    className="input min-h-[54px] text-xs"
-                    value={c[f.key] || ''}
-                    onChange={(e) => upd(f.key, e.target.value)}
-                    placeholder={f.ph}
-                  />
-                ) : (
-                  <input
-                    className="input text-sm"
-                    value={c[f.key] || ''}
-                    onChange={(e) => upd(f.key, e.target.value)}
-                    placeholder={f.ph}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <p className="text-[11px] text-rose-700/70">
-        ⚠ 診所名／認證只會影響「文案內容」與「診間氛圍」；除非上傳 LOGO 並勾選合成，AI 不會在圖上憑空生出診所名或假認證標。
-      </p>
-    </div>
-  );
-}
-
-function ImageUploader({ url, preview, uploading, onPick, onClear, icon = '📷', placeholder = '點擊或拖拉上傳' }) {
-  if (preview) {
-    return (
-      <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={preview} alt="upload" className="size-24 rounded-md object-cover" />
-        <div className="flex-1">
-          <div className="text-xs text-stone-600">{url ? '✓ 已上傳' : uploading ? '上傳中…' : '本機預覽'}</div>
-          {url && <div className="mt-1 break-all text-[10px] text-stone-400">{url.slice(0, 80)}…</div>}
-        </div>
-        <button type="button" onClick={onClear} className="text-sm text-stone-500 hover:text-red-600">移除</button>
-      </div>
-    );
-  }
-  return (
-    <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone-300 bg-white py-8 text-center hover:border-emerald-300 hover:bg-emerald-50/30">
-      <span className="text-3xl">{icon}</span>
-      <span className="text-sm text-stone-600">{placeholder}</span>
-      <input
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        className="hidden"
-        onChange={(e) => onPick(e.target.files?.[0])}
-      />
-    </label>
-  );
-}
-
-// ============== 產品載入器 ==============
-
-function ProductLoader({ onApply }) {
-  const [localProfiles, setLocalProfiles] = useState([]);
-  const [cloudProfiles, setCloudProfiles] = useState([]);
-  const [selectedProfileName, setSelectedProfileName] = useState('');
-  const [loadedProfile, setLoadedProfile] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setLocalProfiles(listProfiles());
-    setCloudProfiles(getCloudIndex());
-    // 也抓 server cloud list
-    (async () => {
-      try {
-        const res = await fetch('/api/profiles/list', { cache: 'no-store' });
-        const data = await res.json();
-        if (res.ok && Array.isArray(data.profiles)) {
-          // merge with localStorage cloud index
-          const map = new Map();
-          for (const p of getCloudIndex()) map.set(p.publicId, p);
-          for (const p of data.profiles) map.set(p.publicId, p);
-          setCloudProfiles(Array.from(map.values()));
-        }
-      } catch (_) {}
-    })();
-  }, []);
-
-  async function handleLoad() {
-    if (!selectedProfileName) return;
-    setBusy(true);
-    let profileData = null;
-    try {
-      if (selectedProfileName.startsWith('local:')) {
-        profileData = getProfile(selectedProfileName.slice(6));
-      } else if (selectedProfileName.startsWith('cloud:')) {
-        const publicId = selectedProfileName.slice(6);
-        const cp = cloudProfiles.find((p) => p.publicId === publicId);
-        if (cp?.url) {
-          const r = await fetch(cp.url, { cache: 'no-store' });
-          if (r.ok) {
-            const wrapper = await r.json();
-            profileData = wrapper.profile || wrapper;
-          }
-        }
-      }
-      setLoadedProfile(profileData);
-    } finally { setBusy(false); }
-  }
-
-  if (localProfiles.length === 0 && cloudProfiles.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="card space-y-3 border-emerald-200 bg-emerald-50/40">
-      <h2 className="text-sm font-medium text-emerald-900">📋 從既有品牌設定載入產品（選填）</h2>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={selectedProfileName}
-          onChange={(e) => { setSelectedProfileName(e.target.value); setLoadedProfile(null); }}
-          className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-sm"
-        >
-          <option value="">選擇存檔…</option>
-          {localProfiles.length > 0 && (
-            <optgroup label="💾 本機">
-              {localProfiles.map((n) => <option key={`l-${n}`} value={`local:${n}`}>{n}</option>)}
-            </optgroup>
-          )}
-          {cloudProfiles.length > 0 && (
-            <optgroup label="☁️ 雲端">
-              {cloudProfiles.map((p) => <option key={`c-${p.publicId}`} value={`cloud:${p.publicId}`}>{p.name}</option>)}
-            </optgroup>
-          )}
-        </select>
-        <button
-          type="button"
-          disabled={!selectedProfileName || busy}
-          onClick={handleLoad}
-          className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {busy ? '載入中…' : '載入設定'}
-        </button>
-      </div>
-
-      {loadedProfile && (
-        <div className="space-y-2 rounded-lg border border-emerald-200 bg-white p-3">
-          <div className="text-xs text-stone-500">
-            品牌:<strong className="ml-1 text-stone-800">{loadedProfile.brand || '(未填)'}</strong>
-            <span className="ml-2">人格:{loadedProfile.brand_persona?.slice(0, 30) || '(未填)'}…</span>
-          </div>
-          <div className="text-xs font-medium text-stone-700">點選一個 SKU 帶入:</div>
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            {(loadedProfile.products || []).map((p, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => onApply(loadedProfile, p)}
-                className="flex items-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 py-1.5 text-left text-xs hover:bg-emerald-50 hover:border-emerald-300"
-              >
-                {Array.isArray(p.images) && p.images[0] && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.images[0]} alt={p.name} className="size-10 rounded object-cover" />
-                )}
-                <span className="flex-1 truncate text-stone-800">{p.name}</span>
-              </button>
-            ))}
-          </div>
-          {(loadedProfile.products || []).length === 0 && (
-            <div className="text-xs text-stone-500">此存檔沒有 SKU</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============== Step 2: 建議 ==============
-
-const TEXT_MODE_OPTIONS = [
-  { key: 'none', label: '無任何文字', hint: '純視覺,圖中不出現任何文字' },
-  { key: 'title_sub', label: '主標 + 副標', hint: '只有 2 行標題文字' },
-  { key: 'short', label: '文案少', hint: '主標 + 副標 + 短版補充 (1-2 行)' },
-  { key: 'long', label: '文案多', hint: '主標 + 副標 + 長版文案 (文字較重廣告)' },
-];
-
-function Step2Suggest({
-  suggestions, picked, setPicked,
-  textMode, setTextMode,
-  includePerson, setIncludePerson,
-  personDescription, setPersonDescription,
-  compositionPrompt, setCompositionPrompt,
-  hasCompositionRef, compositionRefPreview,
-  extraPrompt, setExtraPrompt,
-  medical, scene, setScene, materialType,
-  onBack, onRegen, regenerating, onNext,
-}) {
-  return (
-    <div className="space-y-4">
-      {/* ===== 情景選擇 (醫美) ===== */}
-      {medical && (
-        <div className="card border-rose-200 bg-rose-50/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-rose-900">🎬 圖片情景（選一個場景，3 種比例都會套用）</h2>
-            {materialType === 'promo' && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700">促銷型</span>}
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {MEDICAL_SCENES.map((s) => {
-              const active = (scene || 'auto') === s.key;
-              return (
-                <button
-                  key={s.key}
-                  type="button"
-                  onClick={() => setScene(s.key)}
-                  className={`rounded-lg border px-2 py-2 text-xs ${active ? 'border-rose-500 bg-rose-100 font-medium text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}
-                >
-                  {s.zh}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-rose-700/70">
-            💡 想要多個情景，選一個生成後回來換另一個再生一次即可。「質感靜物 / 藥劑瓶身」適合肉毒瓶身、儀器等實體產品。
-          </p>
-        </div>
-      )}
-      {/* ===== 構圖分析 (僅當有上傳構圖照片時顯示) ===== */}
-      {hasCompositionRef && (
-        <div className="card border-purple-200 bg-purple-50/40 space-y-3">
-          <h2 className="text-lg font-semibold text-purple-900">🖼 構圖參考圖分析</h2>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {compositionRefPreview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={compositionRefPreview} alt="composition ref" className="size-32 rounded-lg object-cover" />
-            )}
-            <div className="flex-1 space-y-2">
-              <label className="label text-xs">AI 解析後的構圖提示詞 (可改)</label>
-              <textarea
-                className="input min-h-[100px] text-xs leading-relaxed"
-                value={compositionPrompt}
-                onChange={(e) => setCompositionPrompt(e.target.value)}
-                placeholder="AI 將根據此描述模仿構圖 (鏡頭角度 / 排版 / 光線 / 留白...)"
-              />
-              <p className="text-[11px] text-purple-700">
-                💡 只取構圖,不抄具體內容。可微調英文或加字。
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 標題建議 ===== */}
-      <div className="card space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">AI 標題建議（選一個或自訂）</h2>
-          <button type="button" onClick={onRegen} disabled={regenerating}
-            className="text-xs text-stone-500 hover:text-emerald-600 disabled:opacity-50">
-            {regenerating ? '重新生成中…' : '🔄 重新生成'}
-          </button>
-        </div>
-        <div className="space-y-2">
-          {(suggestions.titles || []).map((t, i) => (
-            <label key={i} className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 ${picked.title === t ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 hover:bg-stone-50'}`}>
-              <input
-                type="radio"
-                name="title"
-                checked={picked.title === t}
-                onChange={() => setPicked({ ...picked, title: t })}
-                className="size-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
-              />
-              <span className="text-sm text-stone-800">{t}</span>
-            </label>
-          ))}
-        </div>
-
-        <div>
-          <label className="label">主標題 (可改)</label>
-          <input
-            className="input"
-            value={picked.title}
-            onChange={(e) => setPicked({ ...picked, title: e.target.value })}
-          />
-        </div>
-
-        <div>
-          <label className="label">副標 (可改)</label>
-          <input
-            className="input"
-            value={picked.subtitle}
-            onChange={(e) => setPicked({ ...picked, subtitle: e.target.value })}
-          />
-        </div>
-      </div>
-
-      {/* ===== 圖中文案模式 (4 radio) ===== */}
-      <div className="card space-y-3">
-        <h3 className="text-sm font-semibold text-stone-800">📝 圖中文案模式</h3>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {TEXT_MODE_OPTIONS.map((opt) => {
-            const active = textMode === opt.key;
-            return (
-              <label key={opt.key}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 ${active ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 hover:bg-stone-50'}`}>
-                <input
-                  type="radio"
-                  name="textMode"
-                  checked={active}
-                  onChange={() => setTextMode(opt.key)}
-                  className="mt-0.5 size-4 border-stone-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-stone-800">{opt.label}</div>
-                  <div className="text-[11px] text-stone-500">{opt.hint}</div>
-                </div>
-              </label>
-            );
-          })}
-        </div>
-
-        {/* short / long 模式才顯示對應 copy 編輯 */}
-        {textMode === 'short' && (
-          <div>
-            <label className="label text-xs">短版圖中文案 (可改)</label>
-            <textarea
-              className="input min-h-[60px] text-sm"
-              value={picked.copy_short}
-              onChange={(e) => setPicked({ ...picked, copy_short: e.target.value })}
-              placeholder="20-40 字,1-2 行"
-            />
-          </div>
-        )}
-        {textMode === 'long' && (
-          <div>
-            <label className="label text-xs">長版圖中文案 (可改)</label>
-            <textarea
-              className="input min-h-[100px] text-sm"
-              value={picked.copy_long}
-              onChange={(e) => setPicked({ ...picked, copy_long: e.target.value })}
-              placeholder="60-100 字,可含換行"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ===== 人物 ===== */}
-      <div className="card space-y-3">
-        <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            id="includePerson"
-            checked={includePerson}
-            onChange={(e) => setIncludePerson(e.target.checked)}
-            className="mt-1 size-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
-          />
-          <div className="flex-1">
-            <label htmlFor="includePerson" className="cursor-pointer text-sm font-medium text-stone-800">
-              👤 圖片中加入人物
-            </label>
-            {hasCompositionRef && suggestions.has_person && (
-              <p className="text-[11px] text-emerald-700">✓ 構圖參考圖中偵測到人物,已預設打勾</p>
-            )}
-            {hasCompositionRef && !suggestions.has_person && (
-              <p className="text-[11px] text-stone-500">構圖參考圖中沒偵測到人物,預設不加</p>
-            )}
-            {!hasCompositionRef && (
-              <p className="text-[11px] text-stone-500">沒上傳構圖參考圖,預設不加人物</p>
-            )}
-          </div>
-        </div>
-        {includePerson && (
-          <div>
-            <label className="label text-xs">人物樣子 (可改)</label>
-            <textarea
-              className="input min-h-[60px] text-sm"
-              value={personDescription}
-              onChange={(e) => setPersonDescription(e.target.value)}
-              placeholder="例:25 歲女性,休閒風格,雙手捧著產品,自然微笑"
-            />
-            <p className="mt-1 text-[11px] text-stone-500">
-              💡 描述人物性別 / 年齡感 / 穿著 / 姿勢 / 表情
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ===== 完整貼文文案 (僅在 Step 4 用,圖中不渲染) ===== */}
-      <div className="card space-y-2">
-        <label className="label">📱 完整貼文文案 (Step 4 可複製,不會渲染到圖中)</label>
-        <textarea
-          className="input min-h-[100px] text-sm"
-          value={picked.copy}
-          onChange={(e) => setPicked({ ...picked, copy: e.target.value })}
-        />
-      </div>
-
-      {/* ===== 額外指示 ===== */}
-      <div className="card">
-        <label className="label text-xs">額外視覺指示（選填,例:「加上柔光」「換成黃昏色調」）</label>
-        <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <button type="button" onClick={onBack} className="btn-secondary">← 上一步</button>
-        <button type="button" onClick={onNext} disabled={!picked.title?.trim() && textMode !== 'none'} className="btn-primary">
-          下一步:並行生 3 張 →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ============== Step 4: 結果 ==============
-
 const RATIO_INFO = {
-  '1:1': { label: 'IG 動態 / FB 貼文', hint: '正方形' },
-  '9:16': { label: 'Reels / Stories', hint: '直式 9:16' },
-  '1.91:1': { label: 'FB 廣告 / IG 橫向', hint: '橫式 1.91:1' },
+  '1:1': 'IG 動態 / FB',
+  '9:16': 'Reels / Stories',
+  '1.91:1': 'FB / IG 橫向',
 };
 
-function Step4Results({ results, productPhotoPreview, picked, onReset }) {
-  const [copyStatus, setCopyStatus] = useState('');
-
-  // 組合完整的「貼文文案」: 主標 + 副標 + 文案
-  const fullCopy = [
-    picked.title,
-    picked.subtitle,
-    '',
-    picked.copy,
-  ].filter((s) => s && s.trim()).join('\n');
-
-  async function handleCopy(text, label) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyStatus(label);
-      setTimeout(() => setCopyStatus(''), 1500);
-    } catch (_) {
-      setCopyStatus('複製失敗');
-    }
-  }
-
+function ResultList({ results }) {
   return (
-    <>
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-900">🎉 三種比例已產出</h2>
-          <button onClick={onReset} className="text-sm text-stone-500 hover:text-stone-900">
-            重新開始
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {results.map((r, i) => (
-          <ResultCard key={i} result={r} />
-        ))}
-      </div>
-
-      {/* ===== 完整文案區 ===== */}
-      <div className="card space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-stone-800">📝 貼文文案（可直接複製使用）</h3>
-          {copyStatus && <span className="text-xs text-emerald-600">{copyStatus}</span>}
-        </div>
-
-        <div className="space-y-3 rounded-lg bg-stone-50 p-4">
-          {picked.title && (
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <div className="text-[10px] uppercase tracking-wide text-stone-400">主標題</div>
-                <div className="text-sm font-bold text-stone-900">{picked.title}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleCopy(picked.title, '✓ 主標已複製')}
-                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
-              >
-                複製
-              </button>
-            </div>
-          )}
-
-          {picked.subtitle && (
-            <div className="flex items-start justify-between gap-3 border-t border-stone-200 pt-3">
-              <div className="flex-1">
-                <div className="text-[10px] uppercase tracking-wide text-stone-400">副標</div>
-                <div className="text-sm text-stone-800">{picked.subtitle}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleCopy(picked.subtitle, '✓ 副標已複製')}
-                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
-              >
-                複製
-              </button>
-            </div>
-          )}
-
-          {picked.copy && (
-            <div className="flex items-start justify-between gap-3 border-t border-stone-200 pt-3">
-              <div className="flex-1">
-                <div className="text-[10px] uppercase tracking-wide text-stone-400">完整文案</div>
-                <pre className="whitespace-pre-wrap font-sans text-sm text-stone-800">{picked.copy}</pre>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleCopy(picked.copy, '✓ 文案已複製')}
-                className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-[11px] text-stone-600 hover:bg-stone-100"
-              >
-                複製
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => handleCopy(fullCopy, '✓ 全部已複製')}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-          >
-            📋 一次複製全部 (主標 + 副標 + 文案)
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ResultCard({ result }) {
-  const info = RATIO_INFO[result.target] || {};
-  return (
-    <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
-      <div className="bg-stone-50 px-3 py-2">
-        <div className="text-sm font-semibold text-stone-800">{result.target}</div>
-        <div className="text-[11px] text-stone-500">{info.label} · {info.hint}</div>
-      </div>
-      <div
-        className="relative bg-stone-100"
-        style={{
-          aspectRatio: result.target === '1:1' ? '1/1' : result.target === '9:16' ? '9/16' : '1.91/1',
-        }}
-      >
-        {result.error ? (
-          <div className="flex h-full items-center justify-center p-3 text-center text-xs text-red-600">
-            ⚠ {result.error.slice(0, 80)}
+    <div className="space-y-4">
+      {results.map((r, i) => (
+        <div key={i} className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-stone-900">💉 {r.treatment}</h3>
+            {r.title && <span className="text-xs text-stone-500">{r.title}</span>}
           </div>
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={result.url}
-            alt={result.target}
-            className="size-full object-cover"
-            loading="lazy"
-          />
-        )}
-      </div>
-      {!result.error && (
-        <div className="border-t border-stone-200 bg-white p-2">
-          <a href={result.url} target="_blank" rel="noreferrer" download
-            className="block rounded-md bg-emerald-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-emerald-700">
-            ⬇ 下載
-          </a>
+          {r.error ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">⚠ {r.error}</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(r.results || []).map((img, j) => (
+                <div key={j} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+                  <div className="bg-stone-50 px-3 py-1.5 text-[11px] text-stone-500">{img.target} · {RATIO_INFO[img.target] || ''}</div>
+                  <div className="bg-stone-100" style={{ aspectRatio: img.target === '1:1' ? '1/1' : img.target === '9:16' ? '9/16' : '1.91/1' }}>
+                    {img.error
+                      ? <div className="flex h-full items-center justify-center p-2 text-center text-[11px] text-red-600">⚠ {String(img.error).slice(0, 60)}</div>
+                      // eslint-disable-next-line @next/next/no-img-element
+                      : <img src={img.url} alt={img.target} className="size-full object-cover" loading="lazy" />}
+                  </div>
+                  {!img.error && (
+                    <a href={img.url} target="_blank" rel="noreferrer" download className="block bg-rose-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-rose-700">⬇ 下載</a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {r.copy && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-stone-500">貼文文案</summary>
+              <pre className="mt-2 whitespace-pre-wrap font-sans text-stone-700">{r.copy}</pre>
+            </details>
+          )}
         </div>
-      )}
+      ))}
     </div>
   );
 }
