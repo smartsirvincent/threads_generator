@@ -35,8 +35,23 @@ const SAMPLES = {
   'BEST FRIEND': medicalClinicProfile(),
 };
 
+// 預設就帶入 BEST FRIEND 範本 (醫美專用)
+function defaultInput() {
+  const prof = medicalClinicProfile();
+  return {
+    ...EMPTY_INPUT,
+    ...prof,
+    platforms: ['Threads'],
+    monthly_total: 100,
+    start_date: '',
+    dry_run: false,
+    generate_images: false,
+    products: (prof.products || []).map((p) => ({ ...p, images: Array.isArray(p.images) ? p.images : [''] })),
+  };
+}
+
 export default function BrandPage() {
-  const [input, setInput] = useState(EMPTY_INPUT);
+  const [input, setInput] = useState(defaultInput);
 
   function loadSample(name) {
     const s = SAMPLES[name];

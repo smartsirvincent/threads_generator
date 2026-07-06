@@ -29,6 +29,7 @@ function buildPayload(input) {
           .filter(Boolean),
         purchase_url: (p.purchase_url || '').trim(),
         include_in_image_gen: p.include_in_image_gen !== false,
+        weight: Number(p.weight) > 0 ? Number(p.weight) : 1,
         image_styles: p.image_styles || { scene: true, character: true, product: true, ecommerce: false },
         promo_offer: (p.promo_offer || '').trim(),
         image_focus: (p.image_focus || '').trim(),
@@ -43,7 +44,7 @@ function buildPayload(input) {
       .map((s) => s.trim())
       .filter(Boolean),
     image_theme_strategy: input.image_theme_strategy === 'per_sku' ? 'per_sku' : 'shared',
-    industry: input.industry === 'medical_aesthetics' ? 'medical_aesthetics' : 'general',
+    industry: 'medical_aesthetics', // 醫美專用
     clinic: input.clinic && typeof input.clinic === 'object' ? input.clinic : {},
   };
 }
@@ -488,62 +489,35 @@ export default function Step1Form({
           </div>
         </div>
 
-        {/* ===== 產業別 ===== */}
-        <div className="rounded-lg border border-rose-100 bg-rose-50/40 p-3">
-          <label className="label mb-2">產業別 <span className="text-xs font-normal text-stone-500">（醫美會切換成療程/膚況視覺 + 診所信任感文案）</span></label>
-          <div className="flex flex-wrap gap-3">
-            {[
-              { key: 'general', label: '🍽 一般 / 餐飲 / 電商', desc: '產品為主體，保留包裝原貌' },
-              { key: 'medical_aesthetics', label: '💉 醫美 / 診所', desc: '療程/膚況為主體，走水光肌+溫暖診間' },
-            ].map((s) => (
-              <label key={s.key} className="flex flex-1 min-w-[220px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
-                <input
-                  type="radio"
-                  name="industry"
-                  checked={(input.industry || 'general') === s.key}
-                  onChange={() => update('industry', s.key)}
-                  className="mt-1 size-4 border-stone-300 text-rose-600 focus:ring-rose-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-stone-800">{s.label}</span>
-                  <span className="block text-[11px] text-stone-500">{s.desc}</span>
-                </span>
-              </label>
+        {/* ===== 診所資訊 (醫美專用,恆顯示) ===== */}
+        <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-3">
+          <div className="text-sm font-semibold text-rose-900">🏥 診所資訊 <span className="text-xs font-normal text-stone-500">（融入文案信任感 + 生圖診間氛圍；不會憑空生出假認證標）</span></div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {CLINIC_FIELDS.map((f) => (
+              <div key={f.key} className={f.long ? 'md:col-span-2' : ''}>
+                <label className="label text-xs">{f.label}</label>
+                {f.long ? (
+                  <textarea
+                    className="input min-h-[54px] text-xs"
+                    value={(input.clinic || {})[f.key] || ''}
+                    onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
+                    placeholder={f.ph}
+                  />
+                ) : (
+                  <input
+                    className="input text-sm"
+                    value={(input.clinic || {})[f.key] || ''}
+                    onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
+                    placeholder={f.ph}
+                  />
+                )}
+              </div>
             ))}
           </div>
         </div>
 
-        {/* ===== 診所資訊 (僅醫美) ===== */}
-        {(input.industry || 'general') === 'medical_aesthetics' && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-3">
-            <div className="text-sm font-semibold text-rose-900">🏥 診所資訊 <span className="text-xs font-normal text-stone-500">（融入文案信任感 + 生圖診間氛圍；不會憑空生出假認證標）</span></div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {CLINIC_FIELDS.map((f) => (
-                <div key={f.key} className={f.long ? 'md:col-span-2' : ''}>
-                  <label className="label text-xs">{f.label}</label>
-                  {f.long ? (
-                    <textarea
-                      className="input min-h-[54px] text-xs"
-                      value={(input.clinic || {})[f.key] || ''}
-                      onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
-                      placeholder={f.ph}
-                    />
-                  ) : (
-                    <input
-                      className="input text-sm"
-                      value={(input.clinic || {})[f.key] || ''}
-                      onChange={(e) => update('clinic', { ...(input.clinic || {}), [f.key]: e.target.value })}
-                      placeholder={f.ph}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div>
-          <label className="label">品牌總體賣點 * <span className="text-xs font-normal text-stone-500">（用於語錄/觀點/教學等不指向特定 SKU 的主題）</span></label>
+          <label className="label">品牌總體賣點 * <span className="text-xs font-normal text-stone-500">（用於語錄/觀點/衛教等不指向特定療程的主題）</span></label>
           <textarea
             className="input min-h-[80px] text-sm"
             value={input.brand_summary}
@@ -593,12 +567,12 @@ export default function Step1Form({
             />
           </div>
           <div>
-            <label className="label">品牌人格/口吻 *</label>
+            <label className="label">品牌人格/口吻 * <span className="text-xs font-normal text-rose-600">（建議用「閨蜜」口吻）</span></label>
             <textarea
               className="input min-h-[80px]"
               value={input.brand_persona}
               onChange={(e) => update('brand_persona', e.target.value)}
-              placeholder="霸氣台味 / 知性療癒 / 理性專業"
+              placeholder="像閨蜜跟妳說話：用「妳」稱呼、親暱直接、真心挺妳、幫妳把關、不硬推銷"
             />
           </div>
         </div>
@@ -606,12 +580,12 @@ export default function Step1Form({
         {showThemeStrategy && (
           <div className="rounded-lg border border-purple-100 bg-purple-50/40 p-3">
             <label className="label mb-2">
-              主題分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦主題的方式）</span>
+              療程分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦主題與貼文如何對應療程）</span>
             </label>
             <div className="flex flex-wrap gap-3">
               {[
-                { key: 'shared', label: '🔀 共用主題', desc: '一個主題輪替多個產品（主題數量少、視覺多元）' },
-                { key: 'per_sku', label: '📌 一 SKU 一主題', desc: '每個產品有專屬主題（主題名直接指向 SKU）' },
+                { key: 'shared', label: '🔀 輪用', desc: '一個主題輪替多個療程（依比重分配、視覺多元）' },
+                { key: 'per_sku', label: '📌 一療程一篇', desc: '每個療程有專屬主題（主題直接指向該療程）' },
               ].map((s) => (
                 <label key={s.key} className="flex flex-1 min-w-[200px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
                   <input
@@ -653,10 +627,10 @@ export default function Step1Form({
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-stone-900">
-            產品 / SKU <span className="text-sm font-normal text-stone-500">({(input.products || []).length} 個)</span>
+            療程資料庫 <span className="text-sm font-normal text-stone-500">({(input.products || []).length} 個療程)</span>
           </h2>
           <p className="text-xs text-stone-500">
-            每個 SKU 各自有特色 + 圖,「產品介紹」類主題會輪替每個 SKU
+            每個療程有特色 + 價格 + 比重；勾選「納入生成」的療程才會被產文 / 圖片 / 素材使用，並依比重分配
           </p>
         </div>
 
@@ -680,7 +654,7 @@ export default function Step1Form({
           onClick={addProduct}
           className="w-full rounded-lg border-2 border-dashed border-stone-300 py-3 text-sm text-stone-500 hover:bg-stone-50"
         >
-          + 新增產品 / SKU
+          + 新增療程
         </button>
       </div>
 
@@ -742,32 +716,41 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
   const styles = product.image_styles || { scene: true, character: true, product: true, ecommerce: false };
   const enabledCount = ['scene', 'character', 'product', 'ecommerce'].filter((k) => styles[k]).length;
 
+  const enabled = product.include_in_image_gen !== false;
+  const weight = Number(product.weight) > 0 ? Number(product.weight) : 1;
   return (
     <div className={`rounded-xl border p-4 ${
-      showImageGenControls && product.include_in_image_gen === false
-        ? 'border-stone-300 bg-stone-100/60 opacity-70'
-        : 'border-stone-200 bg-stone-50/40'
+      !enabled ? 'border-stone-300 bg-stone-100/60 opacity-70' : 'border-stone-200 bg-stone-50/40'
     }`}>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="flex size-6 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-stone-600">
           {index + 1}
         </span>
-        {showImageGenControls && (
-          <label className="flex items-center gap-1.5 text-xs text-stone-600" title="是否包含在圖片生成">
-            <input
-              type="checkbox"
-              checked={product.include_in_image_gen !== false}
-              onChange={(e) => onChange({ include_in_image_gen: e.target.checked })}
-              className="size-4 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
-            />
-            生圖
-          </label>
-        )}
+        <label className="flex items-center gap-1.5 text-xs text-stone-600" title="勾選才會被產文/圖片/素材使用">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => onChange({ include_in_image_gen: e.target.checked })}
+            className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500"
+          />
+          納入生成
+        </label>
+        <label className="flex items-center gap-1 text-xs text-stone-600" title="發文比重：越高，輪用時出現越多">
+          比重
+          <select
+            value={weight}
+            onChange={(e) => onChange({ weight: Number(e.target.value) })}
+            disabled={!enabled}
+            className="rounded-md border border-stone-300 bg-white px-1.5 py-0.5 text-stone-700 disabled:opacity-40"
+          >
+            {[1, 2, 3, 4, 5].map((w) => <option key={w} value={w}>{w}</option>)}
+          </select>
+        </label>
         <input
-          className="input flex-1"
+          className="input min-w-[140px] flex-1"
           value={product.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="產品 / SKU 名稱（必填）"
+          placeholder="療程名稱（必填）"
         />
         <button
           type="button"
@@ -811,22 +794,22 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
           </div>
           {styles.ecommerce && (
             <div>
-              <label className="label text-xs">優惠內容 <span className="font-normal text-stone-500">（選填，電商促銷風格用，例：「買 2 送 1」「中秋限定 7 折」）</span></label>
+              <label className="label text-xs">價格 / 優惠 <span className="font-normal text-stone-500">（選填，促銷型用，例：「6,999／400 發」「每人 5,000 醫美券直接抵」）</span></label>
               <textarea
                 className="input min-h-[50px] text-xs"
                 value={product.promo_offer || ''}
                 onChange={(e) => onChange({ promo_offer: e.target.value })}
-                placeholder="這個 SKU 的優惠/活動文字"
+                placeholder="這個療程的價格/優惠文字"
               />
             </div>
           )}
           <div>
-            <label className="label text-xs">希望強化的圖片生成方向 <span className="font-normal text-stone-500">（選填，例：「強調手感」「以煙霧/水氣表現新鮮」「黃昏光氛」）</span></label>
+            <label className="label text-xs">希望強化的圖片生成方向 <span className="font-normal text-stone-500">（選填，例：「水光肌特寫」「緊緻輪廓」「溫暖診間」）</span></label>
             <textarea
               className="input min-h-[50px] text-xs"
               value={product.image_focus || ''}
               onChange={(e) => onChange({ image_focus: e.target.value })}
-              placeholder="這個 SKU 的視覺重點/想強化的元素"
+              placeholder="這個療程的視覺重點/想強化的元素"
             />
           </div>
         </div>
@@ -835,16 +818,16 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
       {expanded && (
         <div className="mt-3 space-y-3 border-t border-stone-200 pt-3">
           <div>
-            <label className="label text-xs">產品特色（決定文案 + AI 圖 prompt）</label>
+            <label className="label text-xs">療程特色 / 效果（決定文案 + AI 圖 prompt）</label>
             <textarea
               className="input min-h-[70px] text-xs"
               value={product.features}
               onChange={(e) => onChange({ features: e.target.value })}
-              placeholder="這個 SKU 的具體賣點/特色"
+              placeholder="這個療程的具體效果/適應症/賣點"
             />
           </div>
           <div>
-            <label className="label text-xs">產品圖 URL（AI 生圖參考用）</label>
+            <label className="label text-xs">療程參考圖 URL（AI 生圖參考用，選填）</label>
             <div className="space-y-1.5">
               {(product.images || ['']).map((img, i) => (
                 <div key={i} className="flex gap-2">
@@ -876,7 +859,7 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
             </div>
           </div>
           <div>
-            <label className="label text-xs">SKU 專屬購買連結（可選，沒填用品牌預設）</label>
+            <label className="label text-xs">療程專屬連結 / LINE（可選，沒填用品牌預設）</label>
             <input
               className="input text-xs"
               value={product.purchase_url}
