@@ -247,7 +247,13 @@ export async function POST(req) {
       referenceIsProduct = false,
       materialType = 'brand', // 'brand' | 'promo'
       scenePrompt = '',
+      ratios, // 選填:要生哪些比例,例 ['1:1'];沒給則全部 3 種
     } = await req.json();
+
+    // 只生指定比例 (預設全部)。減少單次請求工作量,避免 Vercel timeout(504)
+    const wanted = Array.isArray(ratios) && ratios.length > 0 ? ratios : null;
+    const sizeMap = wanted ? SIZE_MAP.filter((s) => wanted.includes(s.target)) : SIZE_MAP;
+    const activeSizeMap = sizeMap.length > 0 ? sizeMap : [SIZE_MAP[0]];
 
     const medical = isMedical(industry);
     const hasReference = !!(refUrl && typeof refUrl === 'string');
@@ -301,7 +307,7 @@ export async function POST(req) {
     }
     const prompt = extraPrompt ? `${basePrompt}\n\nExtra direction: ${extraPrompt}` : basePrompt;
 
-    const results = await Promise.all(SIZE_MAP.map(async (spec) => {
+    const results = await Promise.all(activeSizeMap.map(async (spec) => {
       const t0 = Date.now();
       try {
         const taskId = await submitImageV2({

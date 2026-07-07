@@ -9,6 +9,12 @@
     },
     "app/api/download/[id]/route.js": {
       "maxDuration": 30
+    },
+    "app/api/material/generate/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/material/suggest/route.js": {
+      "maxDuration": 60
     }
   }
 }

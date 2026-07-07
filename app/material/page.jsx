@@ -36,6 +36,7 @@ export default function MaterialPage({ heading }) {
   const [includePerson, setIncludePerson] = useState(true);
   const [useLogo, setUseLogo] = useState(false);
   const [extraPrompt, setExtraPrompt] = useState('');
+  const [ratios, setRatios] = useState(['1:1']); // 預設只生 1:1(避免 Vercel 504)
 
   const [step, setStep] = useState(1); // 1 設定 / 2 生成中 / 3 結果
   const [progress, setProgress] = useState({ done: 0, total: 0, current: '' });
@@ -96,6 +97,7 @@ export default function MaterialPage({ heading }) {
             textMode, includePerson, personDescription: '',
             industry: 'medical_aesthetics', clinic, materialType,
             scenePrompt: medicalSceneByKey(scene).en, extraPrompt,
+            ratios,
           }),
         });
         const gdata = await gres.json();
@@ -217,6 +219,30 @@ export default function MaterialPage({ heading }) {
             </div>
 
             <div>
+              <div className="label mb-1">輸出比例 <span className="text-xs font-normal text-stone-500">（預設只生 1:1 最穩；多選會變慢、可能逾時）</span></div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: '1:1', label: '1:1 正方（IG/FB）' },
+                  { key: '9:16', label: '9:16 直式（Reels）' },
+                  { key: '1.91:1', label: '1.91:1 橫式' },
+                ].map((r) => {
+                  const on = ratios.includes(r.key);
+                  return (
+                    <button key={r.key} type="button"
+                      onClick={() => setRatios((prev) => {
+                        const has = prev.includes(r.key);
+                        const next = has ? prev.filter((x) => x !== r.key) : [...prev, r.key];
+                        return next.length ? next : ['1:1']; // 至少留一個
+                      })}
+                      className={`rounded-md border px-2.5 py-1 text-xs ${on ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                      {on ? '☑ ' : '☐ '}{r.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
               <label className="label text-xs">額外視覺指示（選填，套用到全部）</label>
               <input className="input text-sm" value={extraPrompt} onChange={(e) => setExtraPrompt(e.target.value)} placeholder="例：柔光、黃昏色調、留白多一點" />
             </div>
@@ -227,7 +253,7 @@ export default function MaterialPage({ heading }) {
           <div className="flex justify-end">
             <button type="button" onClick={generate} disabled={selected.size === 0}
               className="btn-primary disabled:opacity-50">
-              生成 {selected.size} 個療程 × 3 比例 →
+              生成 {selected.size} 個療程 × {ratios.length} 比例 →
             </button>
           </div>
         </div>
