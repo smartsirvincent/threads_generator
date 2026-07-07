@@ -3,7 +3,7 @@
 // 醫美素材 AI 生成 — 批次版
 // 療程來自品牌資料庫 (不用重填),多選 → 每個療程各自產一組 (AI 首選標題 + 3 比例)
 // LOGO 來自品牌資訊,只勾要不要帶
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   medicalClinicProfile, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey,
 } from '@/lib/verticals.js';
@@ -25,8 +25,8 @@ const TEXT_MODES = [
 ];
 
 export default function MaterialPage({ heading }) {
-  const [profile, setProfile] = useState(DEFAULT_PROFILE);
-  const [loadingDb, setLoadingDb] = useState(true);
+  // 直接用內建 BEST FRIEND 療程資料庫 (預設就有,不用載入)
+  const [profile] = useState(DEFAULT_PROFILE);
   const treatments = (profile.products || []).filter((p) => p?.name);
 
   const [selected, setSelected] = useState(() => new Set());
@@ -44,29 +44,6 @@ export default function MaterialPage({ heading }) {
 
   const clinic = profile.clinic || null;
   const brandLogo = firstLogo(profile);
-
-  // 自動載入品牌資料庫 (最新的雲端存檔),抓不到就用內建 BEST FRIEND 範本
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/profiles/list', { cache: 'no-store' });
-        const data = await res.json();
-        const list = res.ok && Array.isArray(data.profiles) ? data.profiles : [];
-        if (list.length > 0 && list[0]?.url) {
-          const r = await fetch(list[0].url, { cache: 'no-store' });
-          if (r.ok) {
-            const w = await r.json();
-            const prof = w.profile || w;
-            if (prof && Array.isArray(prof.products) && prof.products.length > 0) {
-              setProfile({ ...DEFAULT_PROFILE, ...prof });
-            }
-          }
-        }
-      } catch (_) { /* 用預設 */ } finally {
-        setLoadingDb(false);
-      }
-    })();
-  }, []);
 
   function toggle(i) {
     setSelected((s) => {
@@ -155,7 +132,6 @@ export default function MaterialPage({ heading }) {
                 <button type="button" onClick={clearAll} className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">清除</button>
               </div>
             </div>
-            {loadingDb && <p className="text-xs text-stone-400">載入品牌資料庫中…（先顯示內建範本）</p>}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {treatments.map((t, i) => {
                 const on = selected.has(i);

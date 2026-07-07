@@ -6,8 +6,27 @@ import Step2Themes from '@/components/Step2Themes';
 import Step3Progress from '@/components/Step3Progress';
 import Step4Done from '@/components/Step4Done';
 import Stepper from '@/components/Stepper';
+import { medicalClinicProfile } from '@/lib/verticals.js';
+
+// 預設就帶入 BEST FRIEND 品牌資料庫 (不用再手動載入)
+function defaultInput() {
+  const prof = medicalClinicProfile();
+  return {
+    ...prof,
+    platforms: ['Threads', 'IG'],
+    monthly_total: 60,
+    start_date: '',
+    dry_run: false,
+    generate_images: true,
+    products: (prof.products || []).map((p) => ({ ...p, images: Array.isArray(p.images) ? p.images : [''] })),
+  };
+}
 
 const SAMPLES = {
+  'BEST FRIEND': medicalClinicProfile(),
+};
+
+const _UNUSED_SAMPLES = {
   '87 烤魚': {
     brand: '87 霸氣烤魚火鍋',
     brand_summary:
@@ -80,22 +99,23 @@ const EMPTY_INPUT = {
 
 export default function ImagePlanPage() {
   const [step, setStep] = useState(1);
-  const [input, setInput] = useState(EMPTY_INPUT);
+  const [input, setInput] = useState(defaultInput);
   const [themes, setThemes] = useState([]);
   const [result, setResult] = useState(null);
 
   function loadSample(name) {
     const s = SAMPLES[name];
+    if (!s) return;
     setInput({
-      ...EMPTY_INPUT,
+      ...defaultInput(),
       ...s,
-      products: s.products?.map((p) => ({ ...p, images: Array.isArray(p.images) ? p.images : [] })) || EMPTY_INPUT.products,
+      products: s.products?.map((p) => ({ ...p, images: Array.isArray(p.images) ? p.images : [''] })) || defaultInput().products,
     });
   }
 
   function reset() {
     setStep(1);
-    setInput(EMPTY_INPUT);
+    setInput(defaultInput());
     setThemes([]);
     setResult(null);
   }
