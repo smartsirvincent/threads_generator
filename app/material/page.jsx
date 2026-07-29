@@ -56,22 +56,59 @@ export default function MaterialPage({ heading }) {
   function selectAll() { setSelected(new Set(treatments.map((_, i) => i))); }
   function clearAll() { setSelected(new Set()); }
 
+  // 生單張:submit → 輪詢 poll → finalize。每個 request 都很短,不會 504。
+  async function genOneImage(baseBody, ratio) {
+    // 1) submit → taskId (~2-3s)
+    const sub = await fetch('/api/material/gen-image/submit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...baseBody, ratio }),
+    });
+    const subData = await sub.json();
+    if (!sub.ok || !subData.taskId) throw new Error(subData.error || `submit HTTP ${sub.status}`);
+    const { taskId, target, cloudinaryAr } = subData;
+
+    // 2) 每 4 秒輪詢一次,最多 ~5 分鐘 (每次 request 都很短)
+    let kieUrl = null;
+    for (let i = 0; i < 80; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const pr = await fetch(`/api/gen-image/poll?taskId=${encodeURIComponent(taskId)}`, { cache: 'no-store' });
+      const pd = await pr.json();
+      if (pd.state === 'success' && pd.kieUrl) { kieUrl = pd.kieUrl; break; }
+      if (pd.state === 'fail') throw new Error(pd.error || 'KIE 生成失敗');
+    }
+    if (!kieUrl) throw new Error('生成逾時(KIE 太久沒回)');
+
+    // 3) finalize:轉存 Cloudinary 永久連結 (~5-10s)
+    const fin = await fetch('/api/gen-image/finalize', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kieUrl, brand: profile.brand || 'material' }),
+    });
+    const fd = await fin.json();
+    if (!fin.ok || !fd.url) throw new Error(fd.error || `finalize HTTP ${fin.status}`);
+    // 1.91:1 需在 Cloudinary URL 上套裁切 transform
+    const url = cloudinaryAr ? fd.url.replace('/image/upload/', `/image/upload/c_fill,g_auto,ar_${cloudinaryAr},w_1080/`) : fd.url;
+    return { target, url };
+  }
+
   async function generate() {
     const chosen = [...selected].map((i) => treatments[i]).filter(Boolean);
     if (chosen.length === 0) { setError('請至少勾選一個療程'); return; }
     setError('');
     setResults([]);
     setStep(2);
-    setProgress({ done: 0, total: chosen.length, current: chosen[0]?.name || '' });
+    const totalUnits = chosen.length * ratios.length;
+    let doneUnits = 0;
+    setProgress({ done: 0, total: totalUnits, current: chosen[0]?.name || '' });
 
     const out = [];
     for (let idx = 0; idx < chosen.length; idx++) {
       const t = chosen[idx];
-      setProgress({ done: idx, total: chosen.length, current: t.name });
+      setProgress({ done: doneUnits, total: totalUnits, current: t.name });
       const product = {
         name: t.name, features: t.features || '',
         promo_offer: t.promo_offer || '', image_focus: t.image_focus || '',
       };
+      const entry = { treatment: t.name, title: '', subtitle: '', copy: '', results: [], error: null };
       try {
         // 1) AI 出標題 + 文案 (取首選)
         const sres = await fetch('/api/material/suggest', {
@@ -83,32 +120,40 @@ export default function MaterialPage({ heading }) {
         });
         const sdata = await sres.json();
         if (!sres.ok) throw new Error(sdata.error || `文案 HTTP ${sres.status}`);
-        const title = sdata.titles?.[0] || t.name;
-        const subtitle = sdata.subtitle || '';
+        entry.title = sdata.titles?.[0] || t.name;
+        entry.subtitle = sdata.subtitle || '';
+        entry.copy = sdata.copy || '';
 
-        // 2) 生 3 比例
-        const gres = await fetch('/api/material/generate', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            refUrl: null, product, title, subtitle,
-            copy: sdata.copy || '', copyShort: sdata.copy_short || '', copyLong: sdata.copy_long || '',
-            brand: profile.brand, brand_persona: profile.brand_persona,
-            logoUrl: useLogo ? brandLogo : null, useLogo: !!(useLogo && brandLogo),
-            textMode, includePerson, personDescription: '',
-            industry: 'medical_aesthetics', clinic, materialType,
-            scenePrompt: medicalSceneByKey(scene).en, extraPrompt,
-            ratios,
-          }),
-        });
-        const gdata = await gres.json();
-        if (!gres.ok) throw new Error(gdata.error || `生圖 HTTP ${gres.status}`);
-        out.push({ treatment: t.name, title, subtitle, copy: sdata.copy || '', results: gdata.results || [], error: null });
+        const baseBody = {
+          product, title: entry.title, subtitle: entry.subtitle,
+          copy: sdata.copy || '', copyShort: sdata.copy_short || '', copyLong: sdata.copy_long || '',
+          brand: profile.brand, brand_persona: profile.brand_persona,
+          logoUrl: useLogo ? brandLogo : null, useLogo: !!(useLogo && brandLogo),
+          textMode, includePerson, personDescription: '',
+          clinic, materialType, scenePrompt: medicalSceneByKey(scene).en,
+        };
+
+        // 2) 每個比例各自 submit→poll→finalize (短請求,免 504)
+        for (const ratio of ratios) {
+          setProgress({ done: doneUnits, total: totalUnits, current: `${t.name}（${ratio}）` });
+          try {
+            const img = await genOneImage(baseBody, ratio);
+            entry.results.push(img);
+          } catch (e) {
+            entry.results.push({ target: ratio, error: e.message });
+          }
+          doneUnits++;
+          setProgress({ done: doneUnits, total: totalUnits, current: t.name });
+          setResults([...out, entry]);
+        }
       } catch (e) {
-        out.push({ treatment: t.name, error: e.message, results: [] });
+        entry.error = e.message;
+        doneUnits += ratios.length; // 這療程整組跳過
       }
+      out.push(entry);
       setResults([...out]);
     }
-    setProgress({ done: chosen.length, total: chosen.length, current: '' });
+    setProgress({ done: totalUnits, total: totalUnits, current: '' });
     setStep(3);
   }
 
