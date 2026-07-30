@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { recommendImageThemes, recommendImageThemesDryRun } from '@/lib/recommend-images.js';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req) {
   try {
