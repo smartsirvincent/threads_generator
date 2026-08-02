@@ -381,129 +381,37 @@ export default function Step1Form({
             </div>
           </div>
 
-          {loadOnly && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
-              💡 這裡只能<strong>載入</strong>品牌設定。要新增 / 修改 / 刪除請去 <a href="/brand" className="font-semibold underline">🏷 品牌資訊輸入</a> 統一管理。
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-2 rounded-lg bg-stone-50 p-3 text-xs sm:grid-cols-3">
-            {/* 本機 */}
-            <div className="space-y-1">
-              <div className="font-medium text-stone-600">💾 本機（這台瀏覽器）</div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {!loadOnly && (
-                  <button
-                    type="button"
-                    onClick={handleSaveProfile}
-                    className="rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-brand-700 hover:bg-brand-100"
-                  >
-                    儲存
-                  </button>
-                )}
-                {profiles.length === 0 ? (
-                  <span className="text-stone-400">{loadOnly ? '(無設定可載入)' : '(尚未存)'}</span>
-                ) : (
-                  <select
-                    onChange={(e) => { handleLoadProfile(e.target.value); e.target.value = ''; }}
-                    defaultValue=""
-                    className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-700"
-                  >
-                    <option value="" disabled>載入…</option>
-                    {profiles.map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                )}
-                {!loadOnly && profiles.length > 0 && (
-                  <details className="relative">
-                    <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
-                    <ul className="absolute left-0 z-20 mt-1 w-44 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
-                      {profiles.map((n) => (
-                        <li key={n} className="flex items-center justify-between gap-1">
-                          <span className="truncate text-stone-700">{n}</span>
-                          <button type="button" onClick={() => handleDeleteProfile(n)} className="rounded-md px-1 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </div>
-            </div>
-
-            {/* 雲端 */}
-            <div className="space-y-1">
-              <div className="font-medium text-stone-600">☁️ 雲端（跨裝置）</div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {!loadOnly && (
-                  <button
-                    type="button"
-                    onClick={handleSaveCloud}
-                    disabled={cloudBusy}
-                    className="rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-                  >
-                    存雲端
-                  </button>
-                )}
-                {cloudProfiles.length === 0 ? (
-                  <span className="text-stone-400">{loadOnly ? '(無設定可載入)' : '(雲端無設定)'}</span>
-                ) : (
-                  <select
-                    onChange={(e) => { handleLoadCloud(e.target.value); e.target.value = ''; }}
-                    defaultValue=""
-                    disabled={cloudBusy}
-                    className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-700 disabled:opacity-50"
-                  >
-                    <option value="" disabled>載入…</option>
-                    {cloudProfiles.map((p) => (
-                      <option key={p.publicId} value={p.url}>{p.name}</option>
-                    ))}
-                  </select>
-                )}
-                {!loadOnly && cloudProfiles.length > 0 && (
-                  <details className="relative">
-                    <summary className="cursor-pointer rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-600 hover:bg-stone-50">管理</summary>
-                    <ul className="absolute left-0 z-20 mt-1 w-56 space-y-1 rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
-                      {cloudProfiles.map((p) => (
-                        <li key={p.publicId} className="flex items-center justify-between gap-1">
-                          <span className="truncate text-stone-700" title={p.publicId}>{p.name}</span>
-                          <button type="button" onClick={() => handleDeleteCloud(p.publicId, p.name)} className="rounded-md px-1 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
+          {/* 單一品牌:自動載入雲端固定槽 → 不再有「載入」下拉(避免誤選/跳回)。只保留一鍵存雲端。 */}
+          <div className="flex flex-wrap items-center gap-3 rounded-lg bg-stone-50 p-3 text-xs">
+            {loadOnly ? (
+              <span className="text-stone-600">
+                ☁️ 已自動載入雲端的品牌資料庫（跨裝置一致）。要改療程 / 價格請去 <a href="/brand" className="font-semibold text-emerald-700 underline">🏷 品牌資訊輸入</a>。
+              </span>
+            ) : (
+              <>
                 <button
                   type="button"
-                  onClick={refreshCloudProfiles}
+                  onClick={handleSaveCloud}
                   disabled={cloudBusy}
-                  className="rounded-md border border-stone-300 px-1.5 py-0.5 text-stone-500 hover:bg-stone-50"
-                  title="重新整理雲端列表"
+                  className="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
                 >
-                  ↻
+                  {cloudBusy ? '儲存中…' : '☁️ 儲存到雲端（跨裝置）'}
                 </button>
-              </div>
-              {cloudError && <div className="text-red-600">⚠ {cloudError.slice(0, 60)}</div>}
-            </div>
-
-            {/* JSON 檔案 (load-only 模式整個隱藏) */}
-            {!loadOnly && (
-              <div className="space-y-1">
-                <div className="font-medium text-stone-600">📁 JSON 檔案（備份）</div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleExportJSON}
-                    className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50"
-                  >
-                    📥 匯出
-                  </button>
-                  <label className="cursor-pointer rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">
-                    📤 匯入
-                    <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                  </label>
-                </div>
-              </div>
+                <span className="text-stone-500">改完療程 / 價格後按這裡，所有裝置重整就會同步。</span>
+                {cloudError && (
+                  <span className={cloudError.startsWith('✓') ? 'text-emerald-600' : 'text-red-600'}>{cloudError.slice(0, 60)}</span>
+                )}
+                <details className="ml-auto">
+                  <summary className="cursor-pointer text-stone-400 hover:text-stone-600">JSON 備份</summary>
+                  <div className="mt-1 flex gap-1.5">
+                    <button type="button" onClick={handleExportJSON} className="rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">📥 匯出</button>
+                    <label className="cursor-pointer rounded-md border border-stone-300 bg-white px-2 py-0.5 text-stone-700 hover:bg-stone-50">
+                      📤 匯入
+                      <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
+                    </label>
+                  </div>
+                </details>
+              </>
             )}
           </div>
         </div>
