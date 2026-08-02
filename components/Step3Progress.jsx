@@ -675,10 +675,12 @@ function collectImageTasks(themes, postsByTheme, input) {
 
       const prompt = buildImagePrompt(post, input, product, { ...theme, image_style: chosenStyle });
       if (!prompt) return;
-      const productRefs = pickRefs(product?.images && product.images.length > 0 ? product.images : []);
-      const logoRefs = Array.isArray(input.brand_logos) && input.brand_logos.length > 0
-        ? [input.brand_logos[0]]
-        : [];
+      const productRefs = pickRefs(product?.images || []);
+      const logoList = Array.isArray(input.brand_logos)
+        ? input.brand_logos
+        : String(input.brand_logos || '').split(/\r?\n/);
+      const logo = logoList.map((s) => (s || '').trim()).filter(Boolean)[0];
+      const logoRefs = logo ? [logo] : [];
       const refs = [...productRefs, ...logoRefs].slice(0, 4);
       tasks.push({
         themeName: theme.name,
@@ -757,8 +759,10 @@ function buildImagePrompt(post, input, product, theme) {
 }
 
 function pickRefs(images) {
-  if (!Array.isArray(images) || images.length === 0) return [];
-  const shuffled = [...images].sort(() => Math.random() - 0.5);
+  // 過濾掉空字串 / 空白 URL,避免傳給 KIE 造成 "submit failed: This file ..." (醫美療程多半沒圖)
+  const clean = (Array.isArray(images) ? images : []).filter((u) => typeof u === 'string' && u.trim());
+  if (clean.length === 0) return [];
+  const shuffled = [...clean].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, 2);
 }
 
