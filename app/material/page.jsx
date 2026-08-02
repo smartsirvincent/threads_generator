@@ -20,9 +20,9 @@ function firstLogo(profile) {
 
 const TEXT_MODES = [
   { key: 'none', label: '無文字' },
-  { key: 'title_sub', label: '主標+副標' },
-  { key: 'short', label: '文案少' },
-  { key: 'long', label: '文案多' },
+  { key: 'title_sub', label: '名稱＋特點' },
+  { key: 'short', label: '名稱＋特點＋價格' },
+  { key: 'long', label: '完整文案' },
 ];
 
 export default function MaterialPage({ heading }) {
@@ -42,9 +42,9 @@ export default function MaterialPage({ heading }) {
   const [selected, setSelected] = useState(() => new Set());
   const [materialType, setMaterialType] = useState('brand');
   const [scene, setScene] = useState('auto');
-  const [textMode, setTextMode] = useState('title_sub');
+  const [textMode, setTextMode] = useState('short'); // 預設顯示 名稱+特點+價格
   const [includePerson, setIncludePerson] = useState(true);
-  const [useLogo, setUseLogo] = useState(false);
+  const [useLogo, setUseLogo] = useState(true); // 預設一律蓋 LOGO(需品牌資訊有填 LOGO URL)
   const [extraPrompt, setExtraPrompt] = useState('');
   const [ratios, setRatios] = useState(['1:1']); // 預設只生 1:1(避免 Vercel 504)
 
@@ -130,13 +130,17 @@ export default function MaterialPage({ heading }) {
         });
         const sdata = await sres.json();
         if (!sres.ok) throw new Error(sdata.error || `文案 HTTP ${sres.status}`);
-        entry.title = sdata.titles?.[0] || t.name;
-        entry.subtitle = sdata.subtitle || '';
+        // 圖上文字以「療程名稱 + 特點 + 價格」為主
+        entry.title = t.name;                                   // 療程名稱
+        entry.subtitle = sdata.subtitle || t.image_focus || ''; // 特點
         entry.copy = sdata.copy || '';
+        const priceLine = (t.promo_offer || '').trim();
 
         const baseBody = {
-          product, title: entry.title, subtitle: entry.subtitle,
-          copy: sdata.copy || '', copyShort: sdata.copy_short || '', copyLong: sdata.copy_long || '',
+          product, title: t.name, subtitle: entry.subtitle,
+          copy: sdata.copy || '',
+          copyShort: priceLine || sdata.copy_short || '',        // 價格
+          copyLong: [entry.subtitle, priceLine].filter(Boolean).join('\n') || sdata.copy_long || '',
           brand: profile.brand, brand_persona: profile.brand_persona,
           logoUrl: useLogo ? brandLogo : null, useLogo: !!(useLogo && brandLogo),
           textMode, includePerson, personDescription: '',
@@ -172,7 +176,7 @@ export default function MaterialPage({ heading }) {
       <div className="card border-rose-200 bg-rose-50/40">
         <h1 className="text-2xl font-semibold text-stone-900">{heading || '💉 醫美素材AI生成'}</h1>
         <p className="mt-2 text-sm text-stone-600">
-          從品牌資料庫<strong>勾選療程（可複選）</strong> → 每個療程各生一組（AI 首選標題 + <strong>1:1 / 9:16 / 1.91:1</strong>）。療程與 LOGO 都不用重填。
+          從品牌資料庫<strong>勾選療程（可複選）</strong> → 每個療程各生一組。圖片一律以<strong>美麗東方女性</strong>為主，搭配<strong>療程名稱／特點／價格</strong>，不出現產品或儀器。
         </p>
       </div>
 
@@ -261,10 +265,9 @@ export default function MaterialPage({ heading }) {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
-                  <input type="checkbox" checked={includePerson} onChange={(e) => setIncludePerson(e.target.checked)} className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500" />
-                  圖中加入人物（膚況主體）
-                </label>
+                <div className="rounded-md bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
+                  🖼 圖片一律以<strong>美麗東方女性</strong>為主體，<strong>不出現產品或儀器</strong>，搭配療程名稱／特點／價格文字。
+                </div>
                 <label className={`flex items-center gap-2 text-sm ${brandLogo ? 'cursor-pointer text-stone-700' : 'text-stone-400'}`}>
                   <input type="checkbox" checked={useLogo && !!brandLogo} disabled={!brandLogo} onChange={(e) => setUseLogo(e.target.checked)} className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500 disabled:opacity-40" />
                   帶入品牌 LOGO

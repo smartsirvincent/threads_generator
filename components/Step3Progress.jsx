@@ -724,11 +724,33 @@ function buildImagePrompt(post, input, product, theme) {
   const focus = (product?.image_focus || '').trim();
   const focusInstr = focus ? `Strengthen visual emphasis on: ${focus}.` : '';
 
-  // LOGO 處理
-  const hasLogo = Array.isArray(input.brand_logos) && input.brand_logos.length > 0;
+  const isMed = input.industry === 'medical_aesthetics';
+
+  // LOGO 處理:有提供 logo 就「務必蓋上」;沒提供則嚴禁憑空生 logo
+  const logoList = Array.isArray(input.brand_logos)
+    ? input.brand_logos
+    : String(input.brand_logos || '').split(/\r?\n/);
+  const hasLogo = logoList.map((s) => (s || '').trim()).filter(Boolean).length > 0;
   const logoInstr = hasLogo
-    ? 'A brand logo reference is provided. You MAY include the logo subtly in a corner. Do NOT distort or invent variations.'
+    ? 'A brand logo reference is provided. You MUST include the logo, placed subtly in a corner of every image. Do NOT distort, recolor or invent variations of the logo.'
     : 'STRICT: NO brand logo of any kind. NO brand name as text overlay. NO invented logos, badges, or branded text. Keep the composition logo-free.';
+
+  // 醫美:一律以美麗東方女性為主體,禁止產品/儀器,文字以療程名稱+特點+價格為主
+  if (isMed) {
+    return [
+      product?.name && `Aesthetic-medicine (醫美) social ad for the treatment "${product.name}"`,
+      keywords,
+      main && `Main headline text to render: "${main}"`,
+      sub && `Sub text: "${sub}"`,
+      promoOffer && `Price / offer text to render: "${promoOffer}"`,
+      'HERO SUBJECT = a beautiful East-Asian woman, front and center, with radiant dewy healthy glowing skin (水光肌), natural texture, elegant and confident. Soft warm neutral palette (cream/beige/nude/blush/champagne-gold), high-key soft lighting, editorial beauty-magazine look.',
+      'ABSOLUTELY NO products or devices: do NOT show any bottle, vial, ampoule, syringe, needle, tube, jar, box, packaging, medical device, machine, laser handpiece, ultrasound/RF applicator, equipment or apparatus (儀器) anywhere. No injection/procedure being performed. Only the woman + soft tasteful background + clean typography.',
+      focusInstr,
+      logoInstr,
+      avoidInstr,
+      'COMPLIANCE: no guaranteed-result claims, no scary medical imagery. Photorealistic, tasteful, editorial beauty-ad grade.',
+    ].filter(Boolean).join('. ');
+  }
 
   // Avoid 清單
   const avoidArr = Array.isArray(input.avoid_terms) ? input.avoid_terms : [];
