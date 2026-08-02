@@ -117,8 +117,8 @@ export default function Step1Form({
 
   useEffect(() => {
     setProfiles(listProfiles());
-    // 先從 localStorage 顯示本機快取的雲端 index (即時),server 回來後再蓋過
-    setCloudProfiles(getCloudIndex());
+    // 單一品牌:雲端只顯示固定槽 (BEST FRIEND),隱藏其他舊專案殘留的存檔,避免誤載入/404
+    setCloudProfiles(getCloudIndex().filter((p) => (p.name || '').trim() === CANONICAL_PROFILE_NAME));
     refreshCloudProfiles();
     // 跨裝置:自動載入固定槽的雲端存檔 (若有),覆蓋預設內建範本
     (async () => {
@@ -139,8 +139,8 @@ export default function Step1Form({
       const res = await fetch('/api/profiles/list', { cache: 'no-store' });
       const data = await res.json();
       if (res.ok) {
-        // 合併本機 cloud index + server list,去重,server 為準
-        setCloudProfiles(mergeCloudProfiles(data.profiles || []));
+        // 只保留固定槽 (BEST FRIEND),隱藏舊專案殘留存檔
+        setCloudProfiles(mergeCloudProfiles(data.profiles || []).filter((p) => (p.name || '').trim() === CANONICAL_PROFILE_NAME));
       } else {
         setCloudError(data.error || `HTTP ${res.status}`);
       }
