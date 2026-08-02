@@ -3,10 +3,11 @@
 // 醫美素材 AI 生成 — 批次版
 // 療程來自品牌資料庫 (不用重填),多選 → 每個療程各自產一組 (AI 首選標題 + 3 比例)
 // LOGO 來自品牌資訊,只勾要不要帶
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  medicalClinicProfile, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey,
+  medicalClinicProfile, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey, CANONICAL_PROFILE_NAME,
 } from '@/lib/verticals.js';
+import { loadCanonicalProfile } from '@/lib/profile-store.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
 
@@ -25,9 +26,18 @@ const TEXT_MODES = [
 ];
 
 export default function MaterialPage({ heading }) {
-  // 直接用內建 BEST FRIEND 療程資料庫 (預設就有,不用載入)
-  const [profile] = useState(DEFAULT_PROFILE);
+  // 預設用內建 BEST FRIEND;若雲端固定槽有存檔(價格/療程有改過)就自動覆蓋 → 跨裝置一致
+  const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const treatments = (profile.products || []).filter((p) => p?.name);
+
+  useEffect(() => {
+    (async () => {
+      const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME);
+      if (canon && Array.isArray(canon.products) && canon.products.length > 0) {
+        setProfile({ ...DEFAULT_PROFILE, ...canon });
+      }
+    })();
+  }, []);
 
   const [selected, setSelected] = useState(() => new Set());
   const [materialType, setMaterialType] = useState('brand');

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import {
   listProfiles, getProfile, saveProfile, deleteProfile, getLastUsedName,
   getCloudIndex, addToCloudIndex, removeFromCloudIndex, mergeCloudProfiles,
+  loadCanonicalProfile,
 } from '@/lib/profile-store.js';
+import { CANONICAL_PROFILE_NAME } from '@/lib/verticals.js';
 
 const ALL_PLATFORMS = ['Threads', 'IG', 'FB'];
 
@@ -80,12 +82,51 @@ export default function Step1Form({
   const [cloudProfiles, setCloudProfiles] = useState([]);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudError, setCloudError] = useState('');
+  const [priceBlob, setPriceBlob] = useState('');
+  const [priceBusy, setPriceBusy] = useState(false);
+  const [priceMsg, setPriceMsg] = useState('');
+
+  async function applyPrices() {
+    const names = (input.products || []).map((p) => (p.name || '').trim()).filter(Boolean);
+    if (!priceBlob.trim()) { setPriceMsg('請先貼上價目表文字'); return; }
+    if (names.length === 0) { setPriceMsg('沒有療程可對應'); return; }
+    setPriceBusy(true); setPriceMsg('');
+    try {
+      const res = await fetch('/api/material/parse-prices', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rawText: priceBlob, names }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const map = new Map((data.prices || []).map((p) => [String(p.name).trim(), String(p.promo_offer || '').trim()]));
+      const filled = names.filter((n) => map.get(n)).length;
+      setInput((s) => ({
+        ...s,
+        products: (s.products || []).map((p) => {
+          const v = map.get((p.name || '').trim());
+          return v ? { ...p, promo_offer: v } : p;
+        }),
+      }));
+      setPriceMsg(`✓ 已自動填入 ${filled} / ${names.length} 個療程的價格（記得往下按「存雲端」保存）`);
+    } catch (e) {
+      setPriceMsg('失敗:' + e.message);
+    } finally {
+      setPriceBusy(false);
+    }
+  }
 
   useEffect(() => {
     setProfiles(listProfiles());
     // 先從 localStorage 顯示本機快取的雲端 index (即時),server 回來後再蓋過
     setCloudProfiles(getCloudIndex());
     refreshCloudProfiles();
+    // 跨裝置:自動載入固定槽的雲端存檔 (若有),覆蓋預設內建範本
+    (async () => {
+      const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME);
+      if (canon && Array.isArray(canon.products) && canon.products.length > 0) {
+        applyProfile(canon);
+      }
+    })();
   }, []);
 
   function refreshProfiles() {
@@ -143,9 +184,8 @@ export default function Step1Form({
   }
 
   async function handleSaveCloud() {
-    const defaultName = input.brand || '我的設定';
-    const name = window.prompt('儲存到雲端,名稱:', defaultName)?.trim();
-    if (!name) return;
+    // 單一品牌:一律存到固定槽 (跨裝置一致),不再問名稱
+    const name = CANONICAL_PROFILE_NAME;
     setCloudBusy(true);
     setCloudError('');
     try {
@@ -158,10 +198,10 @@ export default function Step1Form({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       const entry = { publicId: data.publicId, url: data.url, name, createdAt: new Date().toISOString() };
-      // 1. 寫進 localStorage cloud index (reload 後仍能看到)
       addToCloudIndex(entry);
-      // 2. optimistic 加入 UI 列表
       setCloudProfiles((arr) => [entry, ...arr.filter((p) => p.publicId !== entry.publicId)]);
+      setCloudError('✓ 已存雲端(跨裝置)');
+      setTimeout(() => setCloudError(''), 2500);
     } catch (e) {
       setCloudError(e.message);
     } finally {
@@ -584,7 +624,7 @@ export default function Step1Form({
             </label>
             <div className="flex flex-wrap gap-3">
               {[
-                { key: 'shared', label: '🔀 輪用', desc: '一個主題輪替多個療程（依比重分配、視覺多元）' },
+                { key: 'shared', label: '🔀 輪用', desc: '一個主題輪替多個療程（視覺多元）' },
                 { key: 'per_sku', label: '📌 一療程一篇', desc: '每個療程有專屬主題（主題直接指向該療程）' },
               ].map((s) => (
                 <label key={s.key} className="flex flex-1 min-w-[200px] cursor-pointer items-start gap-2 rounded-md border border-stone-200 bg-white p-2 hover:bg-stone-50">
@@ -604,7 +644,7 @@ export default function Step1Form({
             </div>
             {showImageStyles && (
               <p className="mt-2 text-[11px] text-stone-500">
-                💡 圖片風格（情境 / 人物 / 產品為主）在下方每個產品卡片裡各自設定
+                💡 圖片風格（情境 / 人物）在下方每個療程卡片裡各自設定
               </p>
             )}
           </div>
@@ -630,9 +670,36 @@ export default function Step1Form({
             療程資料庫 <span className="text-sm font-normal text-stone-500">({(input.products || []).length} 個療程)</span>
           </h2>
           <p className="text-xs text-stone-500">
-            每個療程有特色 + 價格 + 比重；勾選「納入生成」的療程才會被產文 / 圖片 / 素材使用，並依比重分配
+            勾選「納入生成」的療程才會被產文 / 圖片 / 素材使用
           </p>
         </div>
+
+        {/* ===== 批次貼價格 → AI 自動分配到各療程 ===== */}
+        <details className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-amber-900">💰 批次貼價格（貼一大串價目表，AI 自動填到各療程）</summary>
+          <div className="mt-3 space-y-2">
+            <textarea
+              className="input min-h-[110px] text-xs"
+              value={priceBlob}
+              onChange={(e) => setPriceBlob(e.target.value)}
+              placeholder={'把整份價目表原文貼進來，例如：\n海芙音波三代 6999/400發\n水光肌 1999/cc 整瓶8cc 13999\n完美電波 4999/100發\n肉毒 咀嚼肌 3500 不限U\n…'}
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={applyPrices}
+                disabled={priceBusy}
+                className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {priceBusy ? 'AI 分配中…' : '🪄 自動分配到各療程'}
+              </button>
+              {priceMsg && <span className="text-xs text-amber-800">{priceMsg}</span>}
+            </div>
+            <p className="text-[11px] text-amber-700/80">
+              AI 只會依你貼的文字對應價格、不會編造；填完可逐一微調，再按下方「☁️ 存雲端」保存。
+            </p>
+          </div>
+        </details>
 
         <div className="space-y-3">
           {(input.products || []).map((p, i) => (
@@ -658,28 +725,13 @@ export default function Step1Form({
         </button>
       </div>
 
-      {/* ===== 模式開關 ===== */}
-      <div className="card space-y-2">
-        <div className="flex items-center justify-between rounded-lg bg-stone-50 px-4 py-3">
-          <label className="inline-flex items-center gap-2 text-sm text-stone-700">
-            <input
-              type="checkbox"
-              checked={input.dry_run}
-              onChange={(e) => update('dry_run', e.target.checked)}
-              className="size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
-            />
-            <span>Dry-run 模式（不打 API，用假資料測流程）</span>
-          </label>
-          <span className="text-xs text-stone-500">
-            {input.dry_run ? '✓ 不會花費 API credit' : '會呼叫 Claude API'}
-          </span>
-        </div>
-        {showImageHint && (
-          <p className="px-4 text-xs text-stone-500">
-            💡 想要 AI 圖片，請從首頁進「🖼️ 圖片規劃」獨立流程。
+      {showImageHint && (
+        <div className="card">
+          <p className="text-xs text-stone-500">
+            💡 想要 AI 圖片，請從首頁進「🖼️ 圖片貼文」獨立流程。
           </p>
-        )}
-      </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -713,11 +765,9 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
     onChange({ images: (product.images || []).filter((_, idx) => idx !== i) });
   }
 
-  const styles = product.image_styles || { scene: true, character: true, product: true, ecommerce: false };
-  const enabledCount = ['scene', 'character', 'product', 'ecommerce'].filter((k) => styles[k]).length;
+  const styles = product.image_styles || { scene: true, character: true, product: false, ecommerce: false };
 
   const enabled = product.include_in_image_gen !== false;
-  const weight = Number(product.weight) > 0 ? Number(product.weight) : 1;
   return (
     <div className={`rounded-xl border p-4 ${
       !enabled ? 'border-stone-300 bg-stone-100/60 opacity-70' : 'border-stone-200 bg-stone-50/40'
@@ -734,17 +784,6 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
             className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500"
           />
           納入生成
-        </label>
-        <label className="flex items-center gap-1 text-xs text-stone-600" title="發文比重：越高，輪用時出現越多">
-          比重
-          <select
-            value={weight}
-            onChange={(e) => onChange({ weight: Number(e.target.value) })}
-            disabled={!enabled}
-            className="rounded-md border border-stone-300 bg-white px-1.5 py-0.5 text-stone-700 disabled:opacity-40"
-          >
-            {[1, 2, 3, 4, 5].map((w) => <option key={w} value={w}>{w}</option>)}
-          </select>
         </label>
         <input
           className="input min-w-[140px] flex-1"
@@ -774,17 +813,15 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
       {showImageGenControls && product.include_in_image_gen !== false && (
         <div className="mt-3 space-y-3 border-t border-stone-200 pt-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-stone-600">可接受的圖片風格 ({enabledCount}/4):</span>
+            <span className="text-stone-600">可接受的圖片風格:</span>
             {[
-              { key: 'scene', label: '🌆 情境', def: true },
-              { key: 'character', label: '🧍 人物', def: true },
-              { key: 'product', label: '📦 產品為主', def: true },
-              { key: 'ecommerce', label: '🛒 電商促銷', def: false },
+              { key: 'scene', label: '🌆 情境' },
+              { key: 'character', label: '🧍 人物' },
             ].map((s) => (
               <label key={s.key} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-stone-700 hover:bg-stone-50">
                 <input
                   type="checkbox"
-                  checked={s.def ? styles[s.key] !== false : styles[s.key] === true}
+                  checked={styles[s.key] !== false}
                   onChange={() => onToggleStyle?.(s.key)}
                   className="size-3.5 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
                 />
@@ -792,17 +829,15 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
               </label>
             ))}
           </div>
-          {styles.ecommerce && (
-            <div>
-              <label className="label text-xs">價格 / 優惠 <span className="font-normal text-stone-500">（選填，促銷型用，例：「6,999／400 發」「每人 5,000 醫美券直接抵」）</span></label>
-              <textarea
-                className="input min-h-[50px] text-xs"
-                value={product.promo_offer || ''}
-                onChange={(e) => onChange({ promo_offer: e.target.value })}
-                placeholder="這個療程的價格/優惠文字"
-              />
-            </div>
-          )}
+          <div>
+            <label className="label text-xs">價格 / 優惠 <span className="font-normal text-stone-500">（例：「6,999／400 發」「每人 5,000 醫美券直接抵」；也可用上方「批次貼價格」自動填）</span></label>
+            <textarea
+              className="input min-h-[50px] text-xs"
+              value={product.promo_offer || ''}
+              onChange={(e) => onChange({ promo_offer: e.target.value })}
+              placeholder="這個療程的價格/優惠文字"
+            />
+          </div>
           <div>
             <label className="label text-xs">希望強化的圖片生成方向 <span className="font-normal text-stone-500">（選填，例：「水光肌特寫」「緊緻輪廓」「溫暖診間」）</span></label>
             <textarea
