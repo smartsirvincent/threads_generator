@@ -8,6 +8,7 @@ import {
   medicalClinicProfile, MATERIAL_TYPES, MEDICAL_SCENES, medicalSceneByKey, CANONICAL_PROFILE_NAME,
 } from '@/lib/verticals.js';
 import { loadCanonicalProfile } from '@/lib/profile-store.js';
+import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
 
@@ -95,8 +96,11 @@ export default function MaterialPage({ heading }) {
     });
     const fd = await fin.json();
     if (!fin.ok || !fd.url) throw new Error(fd.error || `finalize HTTP ${fin.status}`);
-    // 1.91:1 需在 Cloudinary URL 上套裁切 transform
-    const url = cloudinaryAr ? fd.url.replace('/image/upload/', `/image/upload/c_fill,g_auto,ar_${cloudinaryAr},w_1080/`) : fd.url;
+    // 1.91:1 裁切 + 疊上真 logo(左上角,pixel-perfect,非 AI 畫)
+    const url = decorateImageUrl(fd.url, {
+      cropAr: cloudinaryAr,
+      logoUrl: (useLogo && brandLogo) ? brandLogo : '',
+    });
     return { target, url };
   }
 
@@ -142,7 +146,7 @@ export default function MaterialPage({ heading }) {
           copyShort: priceLine || sdata.copy_short || '',        // 價格
           copyLong: [entry.subtitle, priceLine].filter(Boolean).join('\n') || sdata.copy_long || '',
           brand: profile.brand, brand_persona: profile.brand_persona,
-          logoUrl: useLogo ? brandLogo : null, useLogo: !!(useLogo && brandLogo),
+          logoUrl: null, useLogo: false, // logo 改用 Cloudinary 後製疊圖,不讓 AI 畫
           textMode, includePerson, personDescription: '',
           clinic, materialType, scenePrompt: medicalSceneByKey(scene).en,
         };

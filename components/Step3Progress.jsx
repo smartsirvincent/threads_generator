@@ -1,6 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { decorateImageUrl } from '@/lib/overlay.js';
+
+// 從 input.brand_logos(陣列或多行字串)取第一個 logo URL
+function firstBrandLogo(input) {
+  const bl = input?.brand_logos;
+  const list = Array.isArray(bl) ? bl : String(bl || '').split(/\r?\n/);
+  return list.map((s) => (s || '').trim()).filter(Boolean)[0] || '';
+}
 
 const IMAGE_CONCURRENCY = 4;
 const TEXT_BATCH_SIZE = 8;
@@ -44,7 +52,7 @@ async function safeFetchJSON(url, body, { retries = MAX_RETRIES, label = '', met
  * 3 步驟生圖:submit (拿 taskId) → poll (輪詢直到完成) → finalize (下載+上傳 Cloudinary)
  * 每個 endpoint 都 <30s,絕對不會被 Vercel 60s 砍
  */
-async function genImageChunked({ prompt, refs, brand, aspect_ratio = '1:1', cancelRef }) {
+async function genImageChunked({ prompt, refs, brand, aspect_ratio = '1:1', logoUrl = '', cancelRef }) {
   // (1) submit
   const sub = await safeFetchJSON('/api/gen-image/submit', {
     prompt, referenceImages: refs, aspect_ratio,
@@ -74,7 +82,9 @@ async function genImageChunked({ prompt, refs, brand, aspect_ratio = '1:1', canc
   const fin = await safeFetchJSON('/api/gen-image/finalize', { kieUrl, brand }, {
     label: 'gen-image/finalize', retries: 2,
   });
-  return { url: fin.url };
+  // 疊上真 logo(左上角,pixel-perfect,非 AI 畫)
+  const url = logoUrl ? decorateImageUrl(fin.url, { logoUrl }) : fin.url;
+  return { url };
 }
 
 export default function Step3Progress({ input, themes, onDone, onBack }) {
@@ -229,6 +239,7 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
             refs: t.refs,
             brand: input.brand,
             aspect_ratio: '1:1',
+            logoUrl: firstBrandLogo(input),
             cancelRef,
           });
           const post = postsByTheme[t.themeName]?.[t.postIndex];
@@ -318,6 +329,7 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
             refs: t.refs,
             brand: input.brand,
             aspect_ratio: '1:1',
+            logoUrl: firstBrandLogo(input),
             cancelRef,
           });
           const post = postsByThemeState[t.themeName]?.[t.postIndex];
@@ -675,13 +687,8 @@ function collectImageTasks(themes, postsByTheme, input) {
 
       const prompt = buildImagePrompt(post, input, product, { ...theme, image_style: chosenStyle });
       if (!prompt) return;
-      const productRefs = pickRefs(product?.images || []);
-      const logoList = Array.isArray(input.brand_logos)
-        ? input.brand_logos
-        : String(input.brand_logos || '').split(/\r?\n/);
-      const logo = logoList.map((s) => (s || '').trim()).filter(Boolean)[0];
-      const logoRefs = logo ? [logo] : [];
-      const refs = [...productRefs, ...logoRefs].slice(0, 4);
+      // logo 不送給 AI 畫(會走樣),改在 finalize 後用 Cloudinary 疊真 logo
+      const refs = pickRefs(product?.images || []).slice(0, 4);
       tasks.push({
         themeName: theme.name,
         postIndex: pIdx,
@@ -746,7 +753,7 @@ function buildImagePrompt(post, input, product, theme) {
       'HERO SUBJECT = a beautiful East-Asian woman, front and center, with radiant dewy healthy glowing skin (水光肌), natural texture, elegant and confident. Soft warm neutral palette (cream/beige/nude/blush/champagne-gold), high-key soft lighting, editorial beauty-magazine look.',
       'ABSOLUTELY NO products or devices: do NOT show any bottle, vial, ampoule, syringe, needle, tube, jar, box, packaging, medical device, machine, laser handpiece, ultrasound/RF applicator, equipment or apparatus (儀器) anywhere. No injection/procedure being performed. Only the woman + soft tasteful background + clean typography.',
       focusInstr,
-      logoInstr,
+      'Do NOT draw or render any logo, brand name, badge or watermark — the real clinic logo is composited on afterwards.',
       avoidInstr,
       'COMPLIANCE: no guaranteed-result claims, no scary medical imagery. Photorealistic, tasteful, editorial beauty-ad grade.',
     ].filter(Boolean).join('. ');
