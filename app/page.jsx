@@ -55,6 +55,26 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ===== 快速發文入口 ===== */}
+      <section className="rounded-2xl border-2 border-dashed border-sky-300 bg-sky-50/40 p-6">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-sky-800">
+              🧵 快速發文
+            </h2>
+            <p className="mt-1 text-xs text-sky-700">
+              主題發想 → AI 產文（療程／景點介紹／促銷／衛教／閨蜜觀點）→ 一鍵發到 Threads。療程與診所資訊自動帶入。
+            </p>
+          </div>
+          <Link
+            href="/post"
+            className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-700"
+          >
+            開始發文 →
+          </Link>
+        </div>
+      </section>
+
       {/* ===== 三大功能卡片 ===== */}
       <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <EntryCard
