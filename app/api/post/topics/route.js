@@ -1,4 +1,4 @@
-// 主題發想:依分類 + 診所/療程情境,AI 給 6 個 Threads 主題點子
+// 主題發想:AI 依「純文字 / 長文 / 圖片」三大類各推幾個主題,每個附可編輯的提示詞
 import { NextResponse } from 'next/server';
 import { callJSON } from '@/lib/llm.js';
 import { clinicContextText } from '@/lib/verticals.js';
@@ -6,33 +6,35 @@ import { clinicContextText } from '@/lib/verticals.js';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const CAT_HINT = {
-  treatment: '針對指定療程,發想能引起共鳴的貼文角度(痛點/效果/適合誰/迷思)',
-  spot: '曼谷在地景點/咖啡廳/商圈/美食介紹,並自然扣「來曼谷旅遊順便變美」的角度',
-  promo: '促銷組合/醫美券/旅遊套餐的導購角度,帶價格誘因但不誇大',
-  education: '醫美衛教與迷思破解(術後保養、療程比較、選擇要點)',
-  opinion: '閨蜜口吻的觀點/情境小故事(變美心情、姐妹對話、旅遊變美的體悟)',
+const TYPE_HINT = {
+  text: '純文字短貼文(Threads,120-300字,口語、有 hook、易互動)',
+  long: '長文(400-500字,故事/衛教/深度觀點,層次分明)',
+  image: '圖片貼文(以一張圖為主,文字精簡當圖說;主題要有清楚視覺畫面)',
 };
 
-const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群主編,口吻像親暱、真誠的閨蜜。請針對指定分類發想 6 個 Threads 貼文主題(短句,像貼文標題)。
-規則:繁體中文;閨蜜口吻、不浮誇;醫療廣告合規(不用保證見效/永久/最便宜);主題要具體、有畫面、能引發互動。
-輸出 JSON(嚴格):{"topics":["主題1","主題2","主題3","主題4","主題5","主題6"]}`;
+const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群內容策略師,口吻像親暱真誠的閨蜜。
+請針對指定的貼文型別發想主題,每個主題都要附一段「提示詞」(給之後 AI 產文用的具體指示:角度、要點、語氣、要帶到的重點)。
+
+規則:繁體中文;閨蜜口吻、不浮誇;醫療廣告合規(不用保證見效/永久/最便宜);主題具體、有畫面、能互動;可涵蓋療程、曼谷景點(來變美順便玩)、促銷、衛教、閨蜜情境。
+輸出 JSON(嚴格):{"topics":[{"name":"主題(短)","prompt":"給產文 AI 的提示詞,50-120字"}]}`;
 
 export async function POST(req) {
   try {
-    const { category = 'treatment', treatmentName = '', keyword = '', brand, brand_persona, audience, clinic } = await req.json();
+    const { type = 'text', count = 4, keyword = '', brand, brand_persona, audience, clinic } = await req.json();
+    const t = ['text', 'long', 'image'].includes(type) ? type : 'text';
     const clinicText = clinicContextText(clinic);
-    const user = `**分類**: ${category} — ${CAT_HINT[category] || CAT_HINT.treatment}
-${treatmentName ? `**指定療程**: ${treatmentName}` : ''}
-${keyword ? `**指定關鍵字/景點**: ${keyword}` : ''}
+    const user = `**貼文型別**: ${t} — ${TYPE_HINT[t]}
+${keyword ? `**參考關鍵字/方向**: ${keyword}` : ''}
 **診所**: ${brand || '泰國醫美 Best Friend'}
 **口吻**: ${brand_persona || '閨蜜、真誠、務實'}
 **受眾**: ${audience || '20-45 歲、想到曼谷旅遊順便變美的台灣女性'}
 ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
 
-請發想 6 個主題,直接回 JSON。`;
-    const parsed = await callJSON({ system: SYSTEM, user, maxTokens: 1200, temperature: 0.95 });
-    const topics = Array.isArray(parsed.topics) ? parsed.topics.slice(0, 6) : [];
+請發想 ${Math.min(Math.max(Number(count) || 4, 1), 8)} 個「${t}」型別的主題,每個附提示詞。直接回 JSON。`;
+    const parsed = await callJSON({ system: SYSTEM, user, maxTokens: 2000, temperature: 0.95 });
+    const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
+      .filter((x) => x && x.name)
+      .map((x) => ({ type: t, name: String(x.name).slice(0, 80), prompt: String(x.prompt || '').slice(0, 500) }));
     return NextResponse.json({ topics });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
