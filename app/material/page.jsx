@@ -178,7 +178,7 @@ export default function MaterialPage({ heading }) {
   return (
     <main className="space-y-6">
       <div className="card border-rose-200 bg-rose-50/40">
-        <h1 className="text-2xl font-semibold text-stone-900">{heading || '💉 醫美素材AI生成'}</h1>
+        <h1 className="text-2xl font-semibold text-stone-900">{heading || '🖼 廣告圖片生成'}</h1>
         <p className="mt-2 text-sm text-stone-600">
           從品牌資料庫<strong>勾選療程（可複選）</strong> → 每個療程各生一組。圖片一律以<strong>美麗東方女性</strong>為主，搭配<strong>療程名稱／特點／價格</strong>，不出現產品或儀器。
         </p>

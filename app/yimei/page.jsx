@@ -1,8 +1,6 @@
-'use client';
+// 醫美素材 已併入「廣告圖片生成」(/material)。舊連結自動導向。
+import { redirect } from 'next/navigation';
 
-// 醫美素材AI生成 — 醫美專用獨立入口 (與 /material 共用批次流程)
-import MaterialPage from '../material/page.jsx';
-
-export default function YimeiPage() {
-  return <MaterialPage heading="💉 醫美素材AI生成" />;
+export default function YimeiRedirect() {
+  redirect('/material');
 }

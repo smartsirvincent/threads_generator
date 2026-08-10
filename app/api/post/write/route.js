@@ -19,13 +19,14 @@ const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群文案,
 
 export async function POST(req) {
   try {
-    const { type = 'text', topicName = '', prompt = '', brand, brand_persona, audience, clinic } = await req.json();
+    const { type = 'text', topicName = '', prompt = '', brand, brand_persona, audience, clinic, variant = 0 } = await req.json();
     if (!topicName && !prompt) {
       return NextResponse.json({ error: '缺少主題或提示詞' }, { status: 400 });
     }
     const t = ['text', 'long', 'image'].includes(type) ? type : 'text';
     const clinicText = clinicContextText(clinic);
-    const user = `**型別規格**: ${TYPE_SPEC[t]}
+    const variantHint = variant > 0 ? `\n**系列第 ${variant + 1} 則**: 請用與其他篇「明顯不同」的開場 hook 與切入角度,不要重複句型或例子。` : '';
+    const user = `**型別規格**: ${TYPE_SPEC[t]}${variantHint}
 **主題**: ${topicName}
 **提示詞(依此發揮)**: ${prompt || topicName}
 **診所**: ${brand || '泰國醫美 Best Friend'}

@@ -18,6 +18,12 @@
     },
     "app/api/material/suggest/route.js": {
       "maxDuration": 60
+    },
+    "app/api/cron/post-due/route.js": {
+      "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/post-due", "schedule": "0 * * * *" }
+  ]
 }

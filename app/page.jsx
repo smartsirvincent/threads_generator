@@ -35,22 +35,22 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ===== 醫美素材AI生成入口 ===== */}
+      {/* ===== 廣告圖片生成入口 ===== */}
       <section className="rounded-2xl border-2 border-dashed border-rose-300 bg-rose-50/40 p-6">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold text-rose-800">
-              💉 醫美素材AI生成
+              🖼 廣告圖片生成
             </h2>
             <p className="mt-1 text-xs text-rose-700">
-              醫美診所專用 — 內建 11 個療程 + 診所資訊，選療程即出標題文案 + 三比例素材（水光肌 × 溫暖診間，醫療廣告合規）。療程照片可不傳。
+              從療程資料庫勾療程（可複選）→ 每療程各生一組廣告圖：美麗東方女性 × 療程名稱／特點／價格，左上角自動蓋 LOGO，不出現產品或儀器。
             </p>
           </div>
           <Link
-            href="/yimei"
+            href="/material"
             className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-rose-700"
           >
-            進入醫美素材間 →
+            進入廣告圖片生成 →
           </Link>
         </div>
       </section>
@@ -106,21 +106,6 @@ export default function Landing() {
           ]}
           tag="~$0.04 / 張"
           cta="開始規劃"
-        />
-        <EntryCard
-          href="/material"
-          accent="emerald"
-          emoji="✨"
-          title="素材產生"
-          desc="單張多比例素材"
-          detail="選產品 → AI 出標題 + 文案 → 一次生 3 種比例"
-          bullets={[
-            '1:1 / 9:16 / 1.91:1 三種比例',
-            '可加 LOGO、構圖參考圖',
-            '從既有品牌設定一鍵載入',
-          ]}
-          tag="~$0.12 / 次"
-          cta="進入素材間"
         />
       </section>
 
