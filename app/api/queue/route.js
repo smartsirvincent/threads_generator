@@ -1,12 +1,21 @@
 // 排程佇列:待發貼文清單(存 Cloudinary 固定槽)。GET 列出;POST 依 action 增/刪。
 import { NextResponse } from 'next/server';
-import { readQueue, writeQueue } from '@/lib/threads.js';
+import { readQueue, writeQueue, readPriceChanges } from '@/lib/threads.js';
 import { hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const newId = () => `q-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+
+// 對一段文字套用價格異動(舊→新),回 {text, changed, applied}
+function applyChanges(text, changes) {
+  let out = text; const applied = [];
+  for (const c of changes) {
+    if (c.from && out.includes(c.from)) { out = out.split(c.from).join(c.to); applied.push(c); }
+  }
+  return { text: out, changed: out !== text, applied };
+}
 
 export async function GET() {
   try {
@@ -53,6 +62,30 @@ export async function POST(req) {
       items = items.map((x) => x.id === body.id ? { ...x, ...body.patch } : x);
       await writeQueue(items);
       return NextResponse.json({ ok: true });
+    }
+    // 更新未發價格:預覽(哪些待發貼文會被改) / 套用
+    if (action === 'refreshPreview') {
+      const changes = (await readPriceChanges()).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      const preview = [];
+      for (const it of items) {
+        if (it.status !== 'pending') continue;
+        const r = applyChanges(it.text, changes);
+        if (r.changed) preview.push({ id: it.id, topicName: it.topicName || '', scheduledTs: it.scheduledTs, before: it.text, after: r.text, applied: r.applied });
+      }
+      return NextResponse.json({ items: preview, changesCount: changes.length });
+    }
+    if (action === 'applyPrices') {
+      const changes = (await readPriceChanges()).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      const ids = new Set(body.ids || []);
+      let updated = 0;
+      items = items.map((it) => {
+        if (it.status !== 'pending' || !ids.has(it.id)) return it;
+        const r = applyChanges(it.text, changes);
+        if (r.changed) { updated++; return { ...it, text: r.text }; }
+        return it;
+      });
+      await writeQueue(items);
+      return NextResponse.json({ ok: true, updated });
     }
     return NextResponse.json({ error: 'unknown action' }, { status: 400 });
   } catch (e) {

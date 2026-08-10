@@ -189,6 +189,18 @@ export default function Step1Form({
     setCloudBusy(true);
     setCloudError('');
     try {
+      // 先比對「舊價 → 新價」,記錄價格異動(供「更新未發價格」用)
+      try {
+        const prev = await loadCanonicalProfile(CANONICAL_PROFILE_NAME);
+        const oldMap = new Map((prev?.products || []).map((p) => [(p.name || '').trim(), (p.promo_offer || '').trim()]));
+        const changes = (input.products || [])
+          .map((p) => ({ name: (p.name || '').trim(), from: oldMap.get((p.name || '').trim()) || '', to: (p.promo_offer || '').trim() }))
+          .filter((c) => c.from && c.to && c.from !== c.to);
+        if (changes.length) {
+          await fetch('/api/pricechanges', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', changes }) });
+        }
+      } catch (_) { /* 記錄異動失敗不影響存檔 */ }
+
       const { dry_run: _dr, generate_images: _gi, ...persistable } = input;
       const res = await fetch('/api/profiles/save', {
         method: 'POST',

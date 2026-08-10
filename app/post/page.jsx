@@ -48,6 +48,10 @@ export default function PostPage() {
   const [qItems, setQItems] = useState([]);
   const [qBusy, setQBusy] = useState(false);
   const [qMsg, setQMsg] = useState('');
+  // 更新未發價格
+  const [priceReview, setPriceReview] = useState(null); // null=未查; []=無需更新
+  const [pricePick, setPricePick] = useState(new Set());
+  const [priceMsg, setPriceMsg] = useState('');
 
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
@@ -163,6 +167,26 @@ export default function PostPage() {
     setQMsg('檢查發送中…');
     try { const r = await fetch('/api/cron/post-due', { method: 'POST' }); const d = await r.json(); setQMsg(d.error ? '⚠ ' + d.error : `✓ 發了 ${d.posted || 0} 則,待發 ${d.remaining ?? '?'}`); loadQueue(); }
     catch (e) { setQMsg('⚠ ' + e.message); }
+  }
+  async function reviewPrices() {
+    setPriceMsg('比對中…'); setPriceReview(null);
+    try {
+      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshPreview' }) });
+      const d = await r.json();
+      setPriceReview(d.items || []);
+      setPricePick(new Set((d.items || []).map((x) => x.id)));
+      setPriceMsg(d.items?.length ? `找到 ${d.items.length} 則待發貼文含舊價,可更新` : (d.changesCount ? '沒有待發貼文需要更新' : '目前沒有價格異動紀錄(改價存檔後才會有)'));
+    } catch (e) { setPriceMsg('⚠ ' + e.message); }
+  }
+  async function applyPrices() {
+    const ids = [...pricePick];
+    if (!ids.length) { setPriceMsg('沒有勾選'); return; }
+    setPriceMsg('更新中…');
+    try {
+      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'applyPrices', ids }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      setPriceMsg(`✓ 已更新 ${d.updated} 則的價格`); setPriceReview(null); loadQueue();
+    } catch (e) { setPriceMsg('⚠ ' + e.message); }
   }
 
   return (
@@ -280,14 +304,38 @@ export default function PostPage() {
         <div className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-stone-800">排程佇列 <span className="font-normal text-stone-500">({qItems.length})</span></h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {qMsg && <span className="text-xs text-emerald-700">{qMsg}</span>}
+              <button type="button" onClick={reviewPrices} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">🔄 更新未發價格</button>
               <button type="button" onClick={runDue} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">▶ 立即檢查發送</button>
               <button type="button" onClick={clearPosted} className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50">🧹 清除已發</button>
               <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-500 hover:bg-stone-50">↻</button>
             </div>
           </div>
-          <p className="text-[11px] text-stone-400">每小時整點會自動檢查並發送到期貼文(Vercel Cron);也可按「立即檢查發送」手動觸發。</p>
+          <p className="text-[11px] text-stone-400">到期貼文由 cron 自動發(見說明);也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
+
+          {priceReview !== null && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-amber-900">待更新價格的貼文 ({priceReview.length})</span>
+                {priceMsg && <span className="text-xs text-amber-800">{priceMsg}</span>}
+              </div>
+              {priceReview.length > 0 && (
+                <>
+                  {priceReview.map((p) => (
+                    <label key={p.id} className="flex items-start gap-2 rounded border border-amber-200 bg-white p-2 text-xs">
+                      <input type="checkbox" checked={pricePick.has(p.id)} onChange={(e) => setPricePick((s) => { const n = new Set(s); e.target.checked ? n.add(p.id) : n.delete(p.id); return n; })} className="mt-0.5 size-4 rounded border-stone-300 text-amber-600" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-stone-500">{p.topicName || '—'} · {new Date(p.scheduledTs).toLocaleString('zh-TW')}</div>
+                        {(p.applied || []).map((c, i) => <div key={i} className="text-amber-700">價格:<span className="line-through">{c.from}</span> → <strong>{c.to}</strong></div>)}
+                      </div>
+                    </label>
+                  ))}
+                  <button type="button" onClick={applyPrices} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">套用所選 ({pricePick.size})</button>
+                </>
+              )}
+            </div>
+          )}
           {qItems.length === 0 ? <p className="text-xs text-stone-400">佇列是空的。到「✍️ 批次產文」勾選後按「送到排程」。</p> : (
             <div className="space-y-1.5">
               {qItems.map((it) => (

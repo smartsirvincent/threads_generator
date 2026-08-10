@@ -17,11 +17,9 @@ export default function RootLayout({ children }) {
               <span className="hidden text-sm font-medium text-stone-500 sm:inline">系統</span>
             </a>
             <nav className="flex items-center gap-1 text-sm sm:gap-2">
-              <NavLink href="/brand" icon="🏷" label="品牌資訊" />
-              <NavLink href="/text" icon="📝" label="文字貼文" />
-              <NavLink href="/image-plan" icon="🖼️" label="圖片貼文" />
-              <NavLink href="/material" icon="🖼" label="廣告圖片生成" />
+              <NavLink href="/brand" icon="🏷" label="品牌與療程" />
               <NavLink href="/post" icon="🧵" label="內容發文" />
+              <NavLink href="/material" icon="🖼" label="廣告圖片生成" />
               <NavLink href="/analytics" icon="📊" label="成效分析" />
             </nav>
           </div>
