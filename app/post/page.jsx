@@ -52,12 +52,21 @@ export default function PostPage() {
   const [priceReview, setPriceReview] = useState(null); // null=未查; []=無需更新
   const [pricePick, setPricePick] = useState(new Set());
   const [priceMsg, setPriceMsg] = useState('');
+  // 每日自動產文
+  const [dailyAuto, setDailyAuto] = useState(null);
 
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
     (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setThreadsConfigured(!!d.configured); } catch (_) { setThreadsConfigured(false); } })();
+    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); } catch (_) { setDailyAuto(false); } })();
   }, []);
+
+  async function toggleDailyAuto(v) {
+    setDailyAuto(v);
+    try { await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dailyAuto: v }) }); }
+    catch (_) { setDailyAuto(!v); }
+  }
 
   async function loadQueue() {
     setQBusy(true);
@@ -312,7 +321,14 @@ export default function PostPage() {
               <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-500 hover:bg-stone-50">↻</button>
             </div>
           </div>
-          <p className="text-[11px] text-stone-400">到期貼文由 cron 自動發(見說明);也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
+          <p className="text-[11px] text-stone-400">到期貼文由外部 cron 每小時打 <code>/api/cron/tick</code> 自動發;也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
+
+          {/* 每日自動產文開關 */}
+          <label className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2 text-sm text-stone-700">
+            <input type="checkbox" checked={!!dailyAuto} disabled={dailyAuto === null} onChange={(e) => toggleDailyAuto(e.target.checked)} className="size-4 rounded border-stone-300 text-sky-600 focus:ring-sky-500" />
+            🤖 每日自動產 1 篇（依近期成效最佳的主題自動產文並排入佇列）
+            <span className="text-[11px] text-stone-400">{dailyAuto === null ? '' : dailyAuto ? '已開啟' : '關閉'}</span>
+          </label>
 
           {priceReview !== null && (
             <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
