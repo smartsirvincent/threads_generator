@@ -177,9 +177,9 @@ export default function MaterialPage({ heading }) {
 
   return (
     <main className="space-y-6">
-      <div className="card border-rose-200 bg-rose-50/40">
-        <h1 className="text-2xl font-semibold text-stone-900">{heading || '🖼 廣告圖片生成'}</h1>
-        <p className="mt-2 text-sm text-stone-600">
+      <div className="card border-brand-200 bg-brand-50/40">
+        <h1 className="font-display text-2xl font-semibold text-sand-900">{heading || '🖼 廣告圖片生成'}</h1>
+        <p className="mt-2 text-sm text-sand-600">
           從品牌資料庫<strong>勾選療程（可複選）</strong> → 每個療程各生一組。圖片一律以<strong>美麗東方女性</strong>為主，搭配<strong>療程名稱／特點／價格</strong>，不出現產品或儀器。
         </p>
       </div>
@@ -189,12 +189,12 @@ export default function MaterialPage({ heading }) {
           {/* 療程多選 */}
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-stone-900">
-                選療程 <span className="text-sm font-normal text-stone-500">（已選 {selected.size} / {treatments.length}）</span>
+              <h2 className="font-display text-lg font-semibold text-sand-900">
+                選療程 <span className="text-sm font-normal text-sand-500">（已選 {selected.size} / {treatments.length}）</span>
               </h2>
               <div className="flex items-center gap-2 text-xs">
-                <button type="button" onClick={selectAll} className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">全選</button>
-                <button type="button" onClick={clearAll} className="rounded-md border border-stone-300 px-2 py-0.5 text-stone-600 hover:bg-stone-50">清除</button>
+                <button type="button" onClick={selectAll} className="rounded-lg border border-sand-300 px-2 py-0.5 text-sand-600 hover:bg-sand-50">全選</button>
+                <button type="button" onClick={clearAll} className="rounded-lg border border-sand-300 px-2 py-0.5 text-sand-600 hover:bg-sand-50">清除</button>
               </div>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -202,23 +202,23 @@ export default function MaterialPage({ heading }) {
                 const on = selected.has(i);
                 return (
                   <label key={t.name + i}
-                    className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 ${on ? 'border-rose-500 bg-rose-50' : 'border-stone-200 hover:bg-stone-50'}`}>
+                    className={`flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 ${on ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-500' : 'border-sand-200 hover:bg-sand-50'}`}>
                     <input type="checkbox" checked={on} onChange={() => toggle(i)}
-                      className="mt-0.5 size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500" />
+                      className="mt-0.5 size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-stone-800">{t.name}</span>
-                      {t.promo_offer && <span className="block truncate text-[11px] text-stone-500">{t.promo_offer}</span>}
+                      <span className={`block truncate text-sm font-medium ${on ? 'text-brand-700' : 'text-sand-800'}`}>{t.name}</span>
+                      {t.promo_offer && <span className="block truncate text-[11px] text-sand-500">{t.promo_offer}</span>}
                     </span>
                   </label>
                 );
               })}
             </div>
-            <p className="text-[11px] text-stone-400">療程來自「🏷 品牌資訊輸入」的療程資料庫；要改內容請去那裡編輯。</p>
+            <p className="text-[11px] text-sand-400">療程來自「🏷 品牌資訊輸入」的療程資料庫；要改內容請去那裡編輯。</p>
           </div>
 
           {/* 共用設定 */}
           <div className="card space-y-4">
-            <h2 className="text-sm font-semibold text-stone-800">共用設定（套用到每個療程）</h2>
+            <h2 className="text-sm font-semibold text-sand-800">共用設定（套用到每個療程）</h2>
 
             <div>
               <div className="label mb-1">素材類型</div>
@@ -226,11 +226,11 @@ export default function MaterialPage({ heading }) {
                 {Object.values(MATERIAL_TYPES).map((mt) => {
                   const on = materialType === mt.key;
                   return (
-                    <label key={mt.key} className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 ${on ? 'border-rose-500 bg-rose-50' : 'border-stone-200 hover:bg-stone-50'}`}>
-                      <input type="radio" name="mt" checked={on} onChange={() => setMaterialType(mt.key)} className="mt-0.5 size-4 border-stone-300 text-rose-600 focus:ring-rose-500" />
+                    <label key={mt.key} className={`flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-2 ${on ? 'border-brand-300 bg-brand-50 ring-1 ring-brand-500' : 'border-sand-200 hover:bg-sand-50'}`}>
+                      <input type="radio" name="mt" checked={on} onChange={() => setMaterialType(mt.key)} className="mt-0.5 size-4 border-sand-300 text-brand-600 focus:ring-brand-500" />
                       <span>
-                        <span className="block text-sm font-medium text-stone-800">{mt.key === 'promo' ? '🏷 ' : '✨ '}{mt.label}</span>
-                        <span className="block text-[11px] text-stone-500">{mt.hint}</span>
+                        <span className={`block text-sm font-medium ${on ? 'text-brand-700' : 'text-sand-800'}`}>{mt.key === 'promo' ? '🏷 ' : '✨ '}{mt.label}</span>
+                        <span className="block text-[11px] text-sand-500">{mt.hint}</span>
                       </span>
                     </label>
                   );
@@ -245,7 +245,7 @@ export default function MaterialPage({ heading }) {
                   const on = scene === s.key;
                   return (
                     <button key={s.key} type="button" onClick={() => setScene(s.key)}
-                      className={`rounded-lg border px-2 py-2 text-xs ${on ? 'border-rose-500 bg-rose-100 font-medium text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                      className={`rounded-xl border px-2 py-2 text-xs ${on ? 'border-brand-300 bg-brand-50 font-medium text-brand-700 ring-1 ring-brand-500' : 'border-sand-200 bg-white text-sand-600 hover:bg-sand-50'}`}>
                       {s.zh}
                     </button>
                   );
@@ -261,7 +261,7 @@ export default function MaterialPage({ heading }) {
                     const on = textMode === m.key;
                     return (
                       <button key={m.key} type="button" onClick={() => setTextMode(m.key)}
-                        className={`rounded-md border px-2.5 py-1 text-xs ${on ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                        className={`rounded-lg border px-2.5 py-1 text-xs ${on ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500' : 'border-sand-200 bg-white text-sand-600 hover:bg-sand-50'}`}>
                         {m.label}
                       </button>
                     );
@@ -269,19 +269,19 @@ export default function MaterialPage({ heading }) {
                 </div>
               </div>
               <div className="space-y-2">
-                <div className="rounded-md bg-rose-50 px-3 py-2 text-[11px] text-rose-700">
+                <div className="rounded-xl bg-brand-50 px-3 py-2 text-[11px] text-brand-700">
                   🖼 圖片一律以<strong>美麗東方女性</strong>為主體，<strong>不出現產品或儀器</strong>，搭配療程名稱／特點／價格文字。
                 </div>
-                <label className={`flex items-center gap-2 text-sm ${brandLogo ? 'cursor-pointer text-stone-700' : 'text-stone-400'}`}>
-                  <input type="checkbox" checked={useLogo && !!brandLogo} disabled={!brandLogo} onChange={(e) => setUseLogo(e.target.checked)} className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500 disabled:opacity-40" />
+                <label className={`flex items-center gap-2 text-sm ${brandLogo ? 'cursor-pointer text-sand-700' : 'text-sand-400'}`}>
+                  <input type="checkbox" checked={useLogo && !!brandLogo} disabled={!brandLogo} onChange={(e) => setUseLogo(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40" />
                   帶入品牌 LOGO
-                  {!brandLogo && <span className="text-[11px]">（先到「品牌資訊輸入」填 LOGO URL）</span>}
+                  {!brandLogo && <span className="text-[11px] text-sand-400">（先到「品牌資訊輸入」填 LOGO URL）</span>}
                 </label>
               </div>
             </div>
 
             <div>
-              <div className="label mb-1">輸出比例 <span className="text-xs font-normal text-stone-500">（預設只生 1:1 最穩；多選會變慢、可能逾時）</span></div>
+              <div className="label mb-1">輸出比例 <span className="text-xs font-normal text-sand-500">（預設只生 1:1 最穩；多選會變慢、可能逾時）</span></div>
               <div className="flex flex-wrap gap-2">
                 {[
                   { key: '1:1', label: '1:1 正方（IG/FB）' },
@@ -296,7 +296,7 @@ export default function MaterialPage({ heading }) {
                         const next = has ? prev.filter((x) => x !== r.key) : [...prev, r.key];
                         return next.length ? next : ['1:1']; // 至少留一個
                       })}
-                      className={`rounded-md border px-2.5 py-1 text-xs ${on ? 'border-rose-500 bg-rose-100 text-rose-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>
+                      className={`rounded-lg border px-2.5 py-1 text-xs ${on ? 'border-brand-300 bg-brand-50 text-brand-700 ring-1 ring-brand-500' : 'border-sand-200 bg-white text-sand-600 hover:bg-sand-50'}`}>
                       {on ? '☑ ' : '☐ '}{r.label}
                     </button>
                   );
@@ -323,12 +323,12 @@ export default function MaterialPage({ heading }) {
 
       {step === 2 && (
         <div className="card space-y-3 text-center">
-          <p className="text-lg text-stone-700">🎨 批次生成中…</p>
-          <p className="text-sm text-stone-500">{progress.done} / {progress.total}　目前：{progress.current}</p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-stone-100">
-            <div className="h-full bg-rose-500 transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
+          <p className="text-lg text-sand-700">🎨 批次生成中…</p>
+          <p className="text-sm text-sand-500">{progress.done} / {progress.total}　目前：{progress.current}</p>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-sand-100">
+            <div className="h-full bg-brand-500 transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
           </div>
-          <p className="text-xs text-stone-400">每個療程約 60–90 秒，請耐心等候（已完成的會先出現在下方）。</p>
+          <p className="text-xs text-sand-400">每個療程約 60–90 秒，請耐心等候（已完成的會先出現在下方）。</p>
           {results.length > 0 && <ResultList results={results} />}
         </div>
       )}
@@ -336,8 +336,8 @@ export default function MaterialPage({ heading }) {
       {step === 3 && (
         <div className="space-y-4">
           <div className="card flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-stone-900">🎉 完成 {results.length} 個療程</h2>
-            <button onClick={() => { setStep(1); setResults([]); setError(''); }} className="text-sm text-stone-500 hover:text-stone-900">重新開始</button>
+            <h2 className="font-display text-lg font-semibold text-sand-900">🎉 完成 {results.length} 個療程</h2>
+            <button onClick={() => { setStep(1); setResults([]); setError(''); }} className="text-sm text-sand-500 hover:text-sand-900">重新開始</button>
           </div>
           <ResultList results={results} />
         </div>
@@ -358,24 +358,24 @@ function ResultList({ results }) {
       {results.map((r, i) => (
         <div key={i} className="card space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-stone-900">💉 {r.treatment}</h3>
-            {r.title && <span className="text-xs text-stone-500">{r.title}</span>}
+            <h3 className="text-sm font-semibold text-sand-900">💉 {r.treatment}</h3>
+            {r.title && <span className="text-xs text-sand-500">{r.title}</span>}
           </div>
           {r.error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">⚠ {r.error}</div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {(r.results || []).map((img, j) => (
-                <div key={j} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
-                  <div className="bg-stone-50 px-3 py-1.5 text-[11px] text-stone-500">{img.target} · {RATIO_INFO[img.target] || ''}</div>
-                  <div className="bg-stone-100" style={{ aspectRatio: img.target === '1:1' ? '1/1' : img.target === '9:16' ? '9/16' : '1.91/1' }}>
+                <div key={j} className="overflow-hidden rounded-2xl border border-sand-200 bg-white shadow-soft">
+                  <div className="bg-sand-50 px-3 py-1.5 text-[11px] text-sand-500">{img.target} · {RATIO_INFO[img.target] || ''}</div>
+                  <div className="bg-sand-100" style={{ aspectRatio: img.target === '1:1' ? '1/1' : img.target === '9:16' ? '9/16' : '1.91/1' }}>
                     {img.error
                       ? <div className="flex h-full items-center justify-center p-2 text-center text-[11px] text-red-600">⚠ {String(img.error).slice(0, 60)}</div>
                       // eslint-disable-next-line @next/next/no-img-element
                       : <img src={img.url} alt={img.target} className="size-full object-cover" loading="lazy" />}
                   </div>
                   {!img.error && (
-                    <a href={img.url} target="_blank" rel="noreferrer" download className="block bg-rose-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-rose-700">⬇ 下載</a>
+                    <a href={img.url} target="_blank" rel="noreferrer" download className="block bg-brand-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-brand-700">⬇ 下載</a>
                   )}
                 </div>
               ))}
@@ -383,8 +383,8 @@ function ResultList({ results }) {
           )}
           {r.copy && (
             <details className="text-xs">
-              <summary className="cursor-pointer text-stone-500">貼文文案</summary>
-              <pre className="mt-2 whitespace-pre-wrap font-sans text-stone-700">{r.copy}</pre>
+              <summary className="cursor-pointer text-sand-500">貼文文案</summary>
+              <pre className="mt-2 whitespace-pre-wrap font-sans text-sand-700">{r.copy}</pre>
             </details>
           )}
         </div>

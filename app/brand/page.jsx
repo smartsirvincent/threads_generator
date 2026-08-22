@@ -61,15 +61,15 @@ export default function BrandPage() {
 
   return (
     <main className="space-y-6">
-      <div className="card border-emerald-200 bg-emerald-50/40">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold text-stone-900">
+      <div className="card border-brand-200 bg-brand-50/50">
+        <h1 className="flex items-center gap-2 text-2xl font-display font-semibold text-sand-900">
           🏷 品牌資訊輸入
         </h1>
-        <p className="mt-2 text-sm text-stone-600">
-          這裡專門編輯品牌與 SKU 資料。改完<strong className="text-emerald-700">記得按頂部「☁️ 雲端」→「存雲端」</strong>。
+        <p className="mt-2 text-sm text-sand-600">
+          這裡專門編輯品牌與 SKU 資料。改完<strong className="text-brand-700">記得按頂部「☁️ 雲端」→「存雲端」</strong>。
           存好後，去文字貼文 / 圖片貼文 / 素材產生時可直接從雲端載入。
         </p>
-        <ul className="mt-3 space-y-1 text-xs text-stone-500">
+        <ul className="mt-3 space-y-1 text-xs text-sand-500">
           <li>• <strong>同名覆蓋</strong>：用相同名稱再存一次會直接更新，不會多一筆</li>
           <li>• <strong>備份</strong>：可同時按「💾 本機」+「📥 匯出 JSON」做多層備份</li>
           <li>• <strong>跨裝置</strong>：雲端設定在任何電腦/瀏覽器都看得到</li>

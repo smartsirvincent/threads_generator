@@ -200,52 +200,52 @@ export default function PostPage() {
 
   return (
     <main className="space-y-6">
-      <div className="card border-sky-200 bg-sky-50/40">
-        <h1 className="text-2xl font-semibold text-stone-900">🧵 內容 / 發文</h1>
-        <p className="mt-2 text-sm text-stone-600">主題庫 → 依主題批次產文(最多 100 則)→ 勾選送排程或立即發 → 排程到點自動發 Threads。品牌/療程自動帶入(在「品牌資訊」維護)。</p>
+      <div className="card border-brand-200 bg-brand-50/40">
+        <h1 className="font-display text-2xl font-semibold text-sand-900">🧵 內容 / 發文</h1>
+        <p className="mt-2 text-sm text-sand-600">主題庫 → 依主題批次產文(最多 100 則)→ 勾選送排程或立即發 → 排程到點自動發 Threads。品牌/療程自動帶入(在「品牌資訊」維護)。</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {[['library', '🗂 主題庫'], ['produce', '✍️ 批次產文'], ['queue', '🗓 排程']].map(([k, l]) => (
-            <button key={k} type="button" onClick={() => setTab(k)} className={`rounded-lg px-3 py-1.5 text-sm ${tab === k ? 'bg-sky-600 text-white' : 'border border-stone-300 bg-white text-stone-600 hover:bg-stone-50'}`}>{l}</button>
+            <button key={k} type="button" onClick={() => setTab(k)} className={`rounded-full px-4 py-1.5 text-sm ${tab === k ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>{l}</button>
           ))}
-          <a href="/analytics" className="ml-auto rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 hover:bg-stone-50">📊 成效分析</a>
+          <a href="/analytics" className="ml-auto rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">📊 成效分析</a>
         </div>
-        <p className="mt-2 text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-amber-600">⚠ Threads 未連接(可先產文＋複製;設 token 後可排程自動發)</span>}</p>
+        <p className="mt-2 text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接(可先產文＋複製;設 token 後可排程自動發)</span>}</p>
       </div>
 
       {tab === 'library' && (
         <>
           <div className="card space-y-3">
-            <h2 className="text-sm font-semibold text-stone-800">1. AI 推薦主題</h2>
+            <h2 className="font-display text-sm font-semibold text-sand-800">1. AI 推薦主題</h2>
             <div className="flex flex-wrap items-end gap-3">
               <div><label className="label text-xs">型別</label>
-                <div className="flex gap-1.5">{TYPES.map((t) => (<button key={t.key} type="button" onClick={() => setBsType(t.key)} className={`rounded-md border px-2.5 py-1 text-xs ${bsType === t.key ? 'border-sky-500 bg-sky-100 text-sky-800' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'}`}>{t.emoji} {t.label}</button>))}</div>
+                <div className="flex gap-1.5">{TYPES.map((t) => (<button key={t.key} type="button" onClick={() => setBsType(t.key)} className={`rounded-full border px-3 py-1 text-xs ${bsType === t.key ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-600 hover:bg-brand-50'}`}>{t.emoji} {t.label}</button>))}</div>
               </div>
               <div><label className="label text-xs">幾個</label><select className="input text-sm" value={bsCount} onChange={(e) => setBsCount(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
               <div className="flex-1 min-w-[180px]"><label className="label text-xs">方向/關鍵字(選填)</label><input className="input text-sm" value={bsKeyword} onChange={(e) => setBsKeyword(e.target.value)} placeholder="例:海芙音波、通羅咖啡廳" /></div>
-              <button type="button" onClick={brainstorm} disabled={bsBusy} className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">{bsBusy ? '發想中…' : '💡 AI 推薦'}</button>
+              <button type="button" onClick={brainstorm} disabled={bsBusy} className="btn-primary text-sm disabled:opacity-50">{bsBusy ? '發想中…' : '💡 AI 推薦'}</button>
             </div>
             {suggestions.length > 0 && (
-              <div className="space-y-2 border-t border-stone-200 pt-3">
+              <div className="space-y-2 border-t border-sand-200 pt-3">
                 {suggestions.map((s, i) => (
-                  <div key={i} className={`rounded-lg border p-2 ${s._picked ? 'border-sky-300 bg-sky-50/50' : 'border-stone-200'}`}>
-                    <label className="flex items-center gap-2 text-sm font-medium text-stone-800"><input type="checkbox" checked={s._picked} onChange={(e) => setSuggestions((arr) => arr.map((x, j) => j === i ? { ...x, _picked: e.target.checked } : x))} className="size-4 rounded border-stone-300 text-sky-600" />{typeMeta(s.type).emoji} {s.name}</label>
+                  <div key={i} className={`rounded-2xl border p-3 ${s._picked ? 'border-brand-300 bg-brand-50/50' : 'border-sand-200'}`}>
+                    <label className="flex items-center gap-2 text-sm font-medium text-sand-800"><input type="checkbox" checked={s._picked} onChange={(e) => setSuggestions((arr) => arr.map((x, j) => j === i ? { ...x, _picked: e.target.checked } : x))} className="size-4 rounded border-sand-300 text-brand-600" />{typeMeta(s.type).emoji} {s.name}</label>
                     <textarea className="input mt-1 min-h-[46px] text-xs" value={s.prompt} onChange={(e) => setSuggestions((arr) => arr.map((x, j) => j === i ? { ...x, prompt: e.target.value } : x))} />
                   </div>
                 ))}
-                <button type="button" onClick={addPicked} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">＋ 加入所選到主題庫</button>
+                <button type="button" onClick={addPicked} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">＋ 加入所選到主題庫</button>
               </div>
             )}
           </div>
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-stone-800">2. 我的主題庫 <span className="font-normal text-stone-500">({topics.length})</span></h2>
-              <div className="flex items-center gap-2">{saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}<button type="button" onClick={saveTopics} disabled={!dirty} className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-40">💾 存檔到雲端{dirty ? ' *' : ''}</button></div>
+              <h2 className="font-display text-sm font-semibold text-sand-800">2. 我的主題庫 <span className="font-normal text-sand-500">({topics.length})</span></h2>
+              <div className="flex items-center gap-2">{saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}<button type="button" onClick={saveTopics} disabled={!dirty} className="btn-primary text-xs disabled:opacity-40">💾 存檔到雲端{dirty ? ' *' : ''}</button></div>
             </div>
-            {topics.length === 0 && <p className="text-xs text-stone-400">還沒有主題,先用上方「AI 推薦」加入。</p>}
+            {topics.length === 0 && <p className="text-xs text-sand-400">還沒有主題,先用上方「AI 推薦」加入。</p>}
             <div className="space-y-2">
               {topics.map((t) => (
-                <div key={t.id} className="rounded-lg border border-stone-200 p-2">
-                  <div className="flex items-center gap-2"><span className="rounded bg-stone-100 px-1.5 py-0.5 text-[11px] text-stone-600">{typeMeta(t.type).emoji} {typeMeta(t.type).label}</span><input className="input flex-1 text-sm" value={t.name} onChange={(e) => updateTopic(t.id, { name: e.target.value })} /><button type="button" onClick={() => deleteTopic(t.id)} className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button></div>
+                <div key={t.id} className="rounded-2xl border border-sand-200 p-3">
+                  <div className="flex items-center gap-2"><span className="rounded-full bg-gold-100 px-2 py-0.5 text-[11px] text-gold-700">{typeMeta(t.type).emoji} {typeMeta(t.type).label}</span><input className="input flex-1 text-sm" value={t.name} onChange={(e) => updateTopic(t.id, { name: e.target.value })} /><button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button></div>
                   <textarea className="input mt-1 min-h-[46px] text-xs" value={t.prompt} placeholder="提示詞" onChange={(e) => updateTopic(t.id, { prompt: e.target.value })} />
                 </div>
               ))}
@@ -256,8 +256,8 @@ export default function PostPage() {
 
       {tab === 'produce' && (
         <div className="card space-y-3">
-          <h2 className="text-sm font-semibold text-stone-800">依主題批次產文</h2>
-          {topics.length === 0 ? <p className="text-xs text-stone-400">主題庫是空的,請先到「🗂 主題庫」新增並存檔。</p> : (
+          <h2 className="font-display text-sm font-semibold text-sand-800">依主題批次產文</h2>
+          {topics.length === 0 ? <p className="text-xs text-sand-400">主題庫是空的,請先到「🗂 主題庫」新增並存檔。</p> : (
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
@@ -267,23 +267,23 @@ export default function PostPage() {
                   </select>
                 </div>
                 <div><label className="label text-xs">產幾則(≤100)</label><input type="number" min={1} max={100} className="input w-24 text-sm" value={count} onChange={(e) => setCount(e.target.value)} /></div>
-                <button type="button" onClick={generateBatch} disabled={genBusy || !selected} className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">{genBusy ? `產文中 ${genProg.done}/${genProg.total}` : '✍️ 批次產文'}</button>
+                <button type="button" onClick={generateBatch} disabled={genBusy || !selected} className="btn-primary text-sm disabled:opacity-50">{genBusy ? `產文中 ${genProg.done}/${genProg.total}` : '✍️ 批次產文'}</button>
               </div>
-              {selected && <p className="text-[11px] text-stone-500">提示詞:{selected.prompt || '(無)'}</p>}
+              {selected && <p className="text-[11px] text-sand-500">提示詞:{selected.prompt || '(無)'}</p>}
 
               {gens.length > 0 && (
-                <div className="space-y-3 border-t border-stone-200 pt-3">
+                <div className="space-y-3 border-t border-sand-200 pt-3">
                   <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="font-medium text-stone-700">共 {gens.length} 則,已勾 {kept.length} 則</span>
-                    <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: true })))} className="text-xs text-stone-500 hover:underline">全選</button>
-                    <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: false })))} className="text-xs text-stone-500 hover:underline">全不選</button>
+                    <span className="font-medium text-sand-700">共 {gens.length} 則,已勾 {kept.length} 則</span>
+                    <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: true })))} className="text-xs text-sand-500 hover:underline">全選</button>
+                    <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: false })))} className="text-xs text-sand-500 hover:underline">全不選</button>
                   </div>
                   <div className="space-y-2">
                     {gens.map((g, i) => (
-                      <div key={g.id} className={`rounded-lg border p-2 ${g.keep ? 'border-sky-300 bg-sky-50/40' : 'border-stone-200 opacity-70'}`}>
+                      <div key={g.id} className={`rounded-2xl border p-3 ${g.keep ? 'border-brand-300 bg-brand-50/40' : 'border-sand-200 opacity-70'}`}>
                         <div className="mb-1 flex items-center justify-between">
-                          <label className="flex items-center gap-2 text-xs text-stone-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-stone-300 text-sky-600" />第 {i + 1} 則 <span className={g.text.length > 500 ? 'text-red-600' : 'text-stone-400'}>({g.text.length}/500)</span></label>
-                          <button type="button" onClick={() => removeGen(g.id)} className="rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50">刪除</button>
+                          <label className="flex items-center gap-2 text-xs text-sand-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-sand-300 text-brand-600" />第 {i + 1} 則 <span className={g.text.length > 500 ? 'text-red-600' : 'text-sand-400'}>({g.text.length}/500)</span></label>
+                          <button type="button" onClick={() => removeGen(g.id)} className="rounded-lg px-2 py-0.5 text-xs text-red-600 hover:bg-red-50">刪除</button>
                         </div>
                         <textarea className="input min-h-[90px] text-sm" value={g.text} onChange={(e) => updateGen(g.id, { text: e.target.value })} />
                       </div>
@@ -291,14 +291,14 @@ export default function PostPage() {
                   </div>
 
                   {/* 排程設定 + 動作 */}
-                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-3 space-y-2">
+                  <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-2">
                     <div className="flex flex-wrap items-end gap-3">
                       <div><label className="label text-xs">起始日期</label><input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
                       <div className="flex-1 min-w-[160px]"><label className="label text-xs">每天發文時段(逗號分隔,幾個=每天幾則)</label><input className="input text-sm" value={times} onChange={(e) => setTimes(e.target.value)} placeholder="12:00,20:00" /></div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" onClick={sendToQueue} disabled={!kept.length} className="rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50">🗓 送到排程({kept.length})</button>
-                      <button type="button" onClick={postAllNow} disabled={!kept.length} className="rounded-md bg-stone-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-50">🧵 立即發送所選</button>
+                      <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 送到排程({kept.length})</button>
+                      <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 立即發送所選</button>
                       {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
                     </div>
                   </div>
@@ -312,58 +312,58 @@ export default function PostPage() {
       {tab === 'queue' && (
         <div className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-stone-800">排程佇列 <span className="font-normal text-stone-500">({qItems.length})</span></h2>
+            <h2 className="font-display text-sm font-semibold text-sand-800">排程佇列 <span className="font-normal text-sand-500">({qItems.length})</span></h2>
             <div className="flex flex-wrap items-center gap-2">
               {qMsg && <span className="text-xs text-emerald-700">{qMsg}</span>}
-              <button type="button" onClick={reviewPrices} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">🔄 更新未發價格</button>
-              <button type="button" onClick={runDue} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">▶ 立即檢查發送</button>
-              <button type="button" onClick={clearPosted} className="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50">🧹 清除已發</button>
-              <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-xs text-stone-500 hover:bg-stone-50">↻</button>
+              <button type="button" onClick={reviewPrices} className="btn-gold text-xs">🔄 更新未發價格</button>
+              <button type="button" onClick={runDue} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">▶ 立即檢查發送</button>
+              <button type="button" onClick={clearPosted} className="btn-secondary text-xs">🧹 清除已發</button>
+              <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-xl border border-sand-200 bg-white px-2 py-1.5 text-xs text-sand-500 hover:bg-brand-50">↻</button>
             </div>
           </div>
-          <p className="text-[11px] text-stone-400">到期貼文由外部 cron 每小時打 <code>/api/cron/tick</code> 自動發;也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
+          <p className="text-[11px] text-sand-400">到期貼文由外部 cron 每小時打 <code>/api/cron/tick</code> 自動發;也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
 
           {/* 每日自動產文開關 */}
-          <label className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2 text-sm text-stone-700">
-            <input type="checkbox" checked={!!dailyAuto} disabled={dailyAuto === null} onChange={(e) => toggleDailyAuto(e.target.checked)} className="size-4 rounded border-stone-300 text-sky-600 focus:ring-sky-500" />
+          <label className="flex items-center gap-2 rounded-2xl border border-brand-200 bg-brand-50/50 px-3 py-2 text-sm text-sand-700">
+            <input type="checkbox" checked={!!dailyAuto} disabled={dailyAuto === null} onChange={(e) => toggleDailyAuto(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
             🤖 每日自動產 1 篇（依近期成效最佳的主題自動產文並排入佇列）
-            <span className="text-[11px] text-stone-400">{dailyAuto === null ? '' : dailyAuto ? '已開啟' : '關閉'}</span>
+            <span className="text-[11px] text-sand-400">{dailyAuto === null ? '' : dailyAuto ? '已開啟' : '關閉'}</span>
           </label>
 
           {priceReview !== null && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+            <div className="rounded-2xl border border-gold-200 bg-gold-50/50 p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-amber-900">待更新價格的貼文 ({priceReview.length})</span>
-                {priceMsg && <span className="text-xs text-amber-800">{priceMsg}</span>}
+                <span className="text-sm font-medium text-gold-700">待更新價格的貼文 ({priceReview.length})</span>
+                {priceMsg && <span className="text-xs text-gold-700">{priceMsg}</span>}
               </div>
               {priceReview.length > 0 && (
                 <>
                   {priceReview.map((p) => (
-                    <label key={p.id} className="flex items-start gap-2 rounded border border-amber-200 bg-white p-2 text-xs">
-                      <input type="checkbox" checked={pricePick.has(p.id)} onChange={(e) => setPricePick((s) => { const n = new Set(s); e.target.checked ? n.add(p.id) : n.delete(p.id); return n; })} className="mt-0.5 size-4 rounded border-stone-300 text-amber-600" />
+                    <label key={p.id} className="flex items-start gap-2 rounded-xl border border-gold-200 bg-white p-2 text-xs">
+                      <input type="checkbox" checked={pricePick.has(p.id)} onChange={(e) => setPricePick((s) => { const n = new Set(s); e.target.checked ? n.add(p.id) : n.delete(p.id); return n; })} className="mt-0.5 size-4 rounded border-sand-300 text-gold-600" />
                       <div className="min-w-0 flex-1">
-                        <div className="text-stone-500">{p.topicName || '—'} · {new Date(p.scheduledTs).toLocaleString('zh-TW')}</div>
-                        {(p.applied || []).map((c, i) => <div key={i} className="text-amber-700">價格:<span className="line-through">{c.from}</span> → <strong>{c.to}</strong></div>)}
+                        <div className="text-sand-500">{p.topicName || '—'} · {new Date(p.scheduledTs).toLocaleString('zh-TW')}</div>
+                        {(p.applied || []).map((c, i) => <div key={i} className="text-gold-700">價格:<span className="line-through">{c.from}</span> → <strong>{c.to}</strong></div>)}
                       </div>
                     </label>
                   ))}
-                  <button type="button" onClick={applyPrices} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">套用所選 ({pricePick.size})</button>
+                  <button type="button" onClick={applyPrices} className="btn-gold text-xs">套用所選 ({pricePick.size})</button>
                 </>
               )}
             </div>
           )}
-          {qItems.length === 0 ? <p className="text-xs text-stone-400">佇列是空的。到「✍️ 批次產文」勾選後按「送到排程」。</p> : (
+          {qItems.length === 0 ? <p className="text-xs text-sand-400">佇列是空的。到「✍️ 批次產文」勾選後按「送到排程」。</p> : (
             <div className="space-y-1.5">
               {qItems.map((it) => (
-                <div key={it.id} className="flex items-start gap-2 rounded-lg border border-stone-200 p-2 text-xs">
-                  <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 ${it.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : it.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{it.status === 'posted' ? '已發' : it.status === 'failed' ? '失敗' : '待發'}</span>
+                <div key={it.id} className="flex items-start gap-2 rounded-2xl border border-sand-200 p-3 text-xs">
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 ${it.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : it.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gold-100 text-gold-700'}`}>{it.status === 'posted' ? '已發' : it.status === 'failed' ? '失敗' : '待發'}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-stone-500">{new Date(it.scheduledTs).toLocaleString('zh-TW')} · {it.topicName || '—'}</div>
-                    <div className="truncate text-stone-800">{it.text}</div>
-                    {it.status === 'posted' && it.permalink && <a href={it.permalink} target="_blank" rel="noreferrer" className="text-sky-600 underline">看貼文 ↗</a>}
+                    <div className="text-sand-500">{new Date(it.scheduledTs).toLocaleString('zh-TW')} · {it.topicName || '—'}</div>
+                    <div className="truncate text-sand-800">{it.text}</div>
+                    {it.status === 'posted' && it.permalink && <a href={it.permalink} target="_blank" rel="noreferrer" className="text-brand-600 underline">看貼文 ↗</a>}
                     {it.status === 'failed' && <span className="text-red-600">{it.error}</span>}
                   </div>
-                  <button type="button" onClick={() => removeQ(it.id)} className="shrink-0 rounded px-1.5 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
+                  <button type="button" onClick={() => removeQ(it.id)} className="shrink-0 rounded-lg px-1.5 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
                 </div>
               ))}
             </div>
