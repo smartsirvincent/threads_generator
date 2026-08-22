@@ -3,39 +3,88 @@
 @tailwind utilities;
 
 :root {
-  --color-bg: #fafaf9;
-  --color-fg: #1c1917;
+  --color-bg: #FBF7F2;        /* 溫暖奶油底 */
+  --color-fg: #37302A;        /* 溫暖墨咖 */
+  --color-card: #FFFFFF;
+  --color-border: #EADFD1;    /* 沙色描邊 */
+  --color-brand: #C06B57;     /* 玫瑰陶土 */
+  --color-gold: #B98E2F;      /* 香檳金 */
 }
 
 html, body {
   background: var(--color-bg);
   color: var(--color-fg);
-  font-feature-settings: 'cv11';
+  font-family: 'Figtree', system-ui, -apple-system, 'Noto Sans TC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+
+@layer base {
+  /* 標題用 Fraunces(柔性襯線),自帶品牌氣質 */
+  h1, h2, h3, .font-display {
+    font-family: 'Fraunces', Georgia, 'Noto Serif TC', serif;
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+  }
+  /* 鍵盤可見焦點(無障礙) */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  a { color: inherit; }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply btn bg-brand-600 text-white shadow-soft hover:bg-brand-700 hover:shadow-lift active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+  }
+  .btn-gold {
+    @apply btn bg-gold-600 text-white shadow-soft hover:bg-gold-700 active:scale-[0.98] disabled:opacity-50;
   }
   .btn-secondary {
-    @apply btn border border-stone-300 bg-white text-stone-700 hover:bg-stone-50;
+    @apply btn border border-sand-200 bg-white text-sand-700 hover:border-sand-300 hover:bg-sand-50;
   }
   .input {
-    @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm
-           placeholder-stone-400 outline-none transition
-           focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+    @apply w-full rounded-xl border border-sand-200 bg-white px-3.5 py-2.5 text-sm text-sand-800
+           placeholder-sand-400 outline-none transition
+           focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15;
   }
   .label {
-    @apply mb-1.5 block text-sm font-medium text-stone-700;
+    @apply mb-1.5 block text-sm font-medium text-sand-700;
   }
   .card {
-    @apply rounded-2xl border border-stone-200 bg-white p-6 shadow-sm;
+    @apply rounded-2xl border border-sand-200 bg-white p-6 shadow-soft;
+  }
+  /* 簽名元素:水光 glow(柔和放射光暈,用於 hero) */
+  .glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .glow::before {
+    content: '';
+    position: absolute;
+    inset: -20% -10% auto -10%;
+    height: 70%;
+    background: radial-gradient(60% 100% at 30% 0%, rgba(192,107,87,0.16), transparent 70%),
+                radial-gradient(50% 100% at 85% 10%, rgba(185,142,47,0.14), transparent 70%);
+    z-index: -1;
+    filter: blur(8px);
+    pointer-events: none;
+  }
+}
+
+/* 尊重減少動態偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

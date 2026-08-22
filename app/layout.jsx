@@ -1,27 +1,33 @@
 import './globals.css';
+import Link from 'next/link';
+import Nav from '@/components/Nav';
 
 export const metadata = {
-  title: 'FUN AI系統',
-  description: '輸入產品特色 → AI 推薦客製化主題 → 整月文案 + 圖片批次生成 → 輸出 xlsx',
+  title: '泰國醫美 Best Friend',
+  description: '社群內容一條龍:品牌與療程 → 內容發文 → 廣告圖片 → 成效分析',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="zh-TW">
-      <body className="min-h-screen bg-gradient-to-br from-stone-50 via-white to-stone-50">
-        <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 backdrop-blur-md">
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
-            <a href="/" className="flex items-baseline gap-1 font-bold hover:opacity-80">
-              <span className="text-xl tracking-tight text-stone-900">FUN</span>
-              <span className="bg-gradient-to-r from-brand-500 to-purple-500 bg-clip-text text-xl tracking-tight text-transparent">AI</span>
-              <span className="hidden text-sm font-medium text-stone-500 sm:inline">系統</span>
-            </a>
-            <nav className="flex items-center gap-1 text-sm sm:gap-2">
-              <NavLink href="/brand" icon="🏷" label="品牌與療程" />
-              <NavLink href="/post" icon="🧵" label="內容發文" />
-              <NavLink href="/material" icon="🖼" label="廣告圖片生成" />
-              <NavLink href="/analytics" icon="📊" label="成效分析" />
-            </nav>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Figtree:wght@300..700&display=swap"
+        />
+      </head>
+      <body className="min-h-screen">
+        <header className="sticky top-0 z-30 border-b border-sand-200/70 bg-[#FBF7F2]/85 backdrop-blur-md">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <Link href="/" className="group flex items-center gap-2 hover:opacity-90">
+              <span className="flex size-8 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white shadow-soft">B</span>
+              <span className="hidden font-display text-lg font-semibold tracking-tight text-sand-800 sm:inline">
+                Best Friend<span className="text-brand-600">.</span>
+              </span>
+            </Link>
+            <Nav />
           </div>
         </header>
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:py-12">
@@ -29,17 +35,5 @@ export default function RootLayout({ children }) {
         </div>
       </body>
     </html>
-  );
-}
-
-function NavLink({ href, icon, label }) {
-  return (
-    <a
-      href={href}
-      className="rounded-lg px-2 py-1.5 text-stone-600 transition hover:bg-stone-100 hover:text-stone-900 sm:px-3"
-    >
-      <span className="sm:mr-1">{icon}</span>
-      <span className="hidden sm:inline">{label}</span>
-    </a>
   );
 }
