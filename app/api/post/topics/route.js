@@ -19,9 +19,11 @@ const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群內容�
 「核心訊息:(一句話講這主題想傳達什麼)。可選切角(每篇挑一個深入,不要全用):①… ②… ③… ④… ⑤…(至少 5 個具體、彼此不同的角度/素材/故事點)。可帶素材:(診所賣點/價格/醫美券/景點等,擇需使用)。語氣:…。」
 硬性規定:**不准寫固定開場白、不准指定範例開場句、不准規定固定條列點數(如「三件事」)、不准指定任何固定結尾句或結尾問句**——這些都會害每篇長一樣。提示詞只給「方向與可選素材」,把「怎麼開場、講哪幾點、怎麼收尾」全部留給產文時決定。
 
-規則:繁體中文;閨蜜口吻、不浮誇;醫療廣告合規(不用保證見效/永久/最便宜);主題具體、有畫面、能互動;可涵蓋療程、曼谷景點(來變美順便玩)、促銷、衛教、閨蜜情境。
+**每個主題還要定義一個「區分變數」**:這是讓同主題每篇聚焦「不同具體對象」的維度。給一個維度名稱 varLabel(例:療程項目、客人類型、常見疑慮),再列出 8-15 個具體值 variables(每個值都是一篇可寫的具體對象)。產文時每篇會挑一個不同的值深入寫。變數值要具體、彼此不同、都跟主題相關。
+
+規則:繁體中文;閨蜜口吻、不浮誇;醫療廣告合規(不用保證見效/永久/最便宜);主題要「夠大」能容納很多篇、有畫面、能互動;可涵蓋療程、曼谷景點(來變美順便玩)、促銷、衛教、閨蜜情境。
 **主題名稱務必精簡在 10 個字以內**(只是分類標籤,細節寫在提示詞裡)。
-輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"依上述固定格式的彈性 brief(核心訊息+至少5個可選切角+可帶素材+語氣),100-180字,不含任何固定開場/結尾句"}]}`;
+輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"彈性 brief 100-180字","varLabel":"區分變數維度名稱","variables":["具體值1","具體值2","…(8-15個)"]}]}`;
 
 // 純泰國文化/旅遊:完全不談產品、品牌、療程、促銷
 const CULTURE_SYSTEM = `你是經營一個「泰國文化/旅遊」風格 Threads 帳號的內容策略師,口吻像親暱真誠的閨蜜。
@@ -29,8 +31,9 @@ const CULTURE_SYSTEM = `你是經營一個「泰國文化/旅遊」風格 Thread
 **絕對禁止**:任何跟美容、保養、變美、醫美、皮膚、素顏、抗老、療程、診所、產品、品牌、促銷、優惠有關的主題或字眼——連「順便變美」「醫美行程」這類都不行。主題要能讓「對泰國有興趣但不見得想變美」的人也想看。
 提示詞寫法(關鍵):同一主題會產很多篇,提示詞要寫成有彈性的 brief,用固定格式:
 「核心訊息:(一句話)。可選切角(每篇挑一個深入,不要全用):①… ②… ③… ④… ⑤…(至少5個具體、彼此不同的角度/故事點)。語氣:…。」
+**每個主題還要定義一個「區分變數」**:一個維度名稱 varLabel(例:捷運站、泰國人類型、夜市小吃、寺廟)+ 8-15 個具體值 variables(如 Siam站/Asok站…、司機/按摩師/夜市老闆…),讓同主題每篇聚焦一個不同的具體對象。變數值要具體、彼此不同、都跟主題相關。
 硬性規定:不准寫固定開場白、不准指定範例開場句、不准規定固定條列點數、不准指定固定結尾句;不得出現任何產品/品牌/療程/優惠字眼。主題名稱≤10字。
-輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"彈性 brief,100-180字"}]}`;
+輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"彈性 brief 100-180字","varLabel":"區分變數維度名稱","variables":["具體值1","具體值2","…(8-15個)"]}]}`;
 
 export async function POST(req) {
   try {
@@ -55,7 +58,12 @@ ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
     const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 2000, temperature: culture ? 0.85 : 0.95 });
     const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
       .filter((x) => x && x.name)
-      .map((x) => ({ type: t, name: String(x.name).replace(/\s+/g, '').slice(0, 10), prompt: String(x.prompt || '').slice(0, 500), culture: !!culture }));
+      .map((x) => ({
+        type: t, name: String(x.name).replace(/\s+/g, '').slice(0, 10),
+        prompt: String(x.prompt || '').slice(0, 500), culture: !!culture,
+        varLabel: String(x.varLabel || '').slice(0, 20),
+        variables: Array.isArray(x.variables) ? x.variables.filter(Boolean).map((v) => String(v).slice(0, 40)).slice(0, 30) : [],
+      }));
     return NextResponse.json({ topics });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

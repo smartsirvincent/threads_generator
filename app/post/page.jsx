@@ -177,8 +177,10 @@ export default function PostPage() {
         const i = cursor++;
         const tp = pickList.length ? pickList[(seedBase + i) % pickList.length] : null;
         const treatmentContext = buildTreatmentContext(selected, tp);
+        const varValues = selected.variables || [];
+        const variableValue = varValues.length ? varValues[(seedBase + i) % varValues.length] : '';
         try {
-          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, ...ctx, clinic }) });
+          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, varLabel: selected.varLabel || '', variableValue, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
           results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: genImages && r.ok, imgErr: '' };
@@ -375,6 +377,9 @@ export default function PostPage() {
                   </div>
                   {t.culture && <p className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] text-blue-700">🇹🇭 純泰國文化模式:產文只介紹泰國文化/旅遊,不談產品/品牌/療程/優惠(綁定療程不會生效)</p>}
 
+                  {/* 區分變數:讓同主題每篇聚焦不同具體對象 */}
+                  <VariableEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+
                   {/* 綁定療程(整篇文＋圖共用;純文化主題可略) */}
                   {!t.culture && <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
 
@@ -529,6 +534,33 @@ export default function PostPage() {
         </div>
       )}
     </main>
+  );
+}
+
+// 區分變數:一個維度(varLabel)+ 多個具體值(variables),產文時每篇輪一個不同的值深入
+function VariableEditor({ topic, onChange }) {
+  const [nv, setNv] = useState('');
+  const vars = topic.variables || [];
+  function add() { const v = nv.trim(); if (v && !vars.includes(v)) onChange({ variables: [...vars, v] }); setNv(''); }
+  function remove(v) { onChange({ variables: vars.filter((x) => x !== v) }); }
+  return (
+    <div className="rounded-xl border border-gold-200 bg-gold-50/40 p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[11px] font-medium text-sand-700">🔀 區分變數</span>
+        <input className="input flex-1 py-1 text-xs" value={topic.varLabel || ''} placeholder="維度名稱(例:捷運站、泰國人類型、療程項目)" onChange={(e) => onChange({ varLabel: e.target.value })} />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {vars.map((v) => (
+          <span key={v} className="flex items-center gap-1 rounded-full border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-700">{v}<button type="button" onClick={() => remove(v)} className="text-sand-400 hover:text-red-600">✕</button></span>
+        ))}
+        {vars.length === 0 && <span className="text-[11px] text-sand-400">尚無變數值(用 AI 推薦會自動帶,或在下方手動加)</span>}
+      </div>
+      <div className="flex gap-1">
+        <input className="input flex-1 py-1 text-xs" value={nv} placeholder="新增一個值,按 Enter" onChange={(e) => setNv(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <button type="button" onClick={add} className="btn-secondary text-xs">＋</button>
+      </div>
+      <p className="text-[11px] text-sand-400">產文時每篇輪一個不同的值深入寫。目前 {vars.length} 個值 → 可產出約 {vars.length || '—'} 種不同對象的貼文。</p>
+    </div>
   );
 }
 

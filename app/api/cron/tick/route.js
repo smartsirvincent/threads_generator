@@ -96,7 +96,9 @@ async function run() {
             const [hh, mm] = String(slot.time).split(':').map(Number);
             const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
             const tc = weeklyTreatmentContext(topic, products, dow + seed);
-            const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture });
+            const vars = topic.variables || [];
+            const variableValue = vars.length ? vars[(dow + seed) % vars.length] : '';
+            const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
             if (text) { items.push({ id: `wk-${dateKey}-${slot.id}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
             seed++;
           }
@@ -130,7 +132,9 @@ async function run() {
       const topic = await pickTopic(topics, token);
       if (topic) {
         const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
-        const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, culture: !!topic.culture });
+        const vars = topic.variables || [];
+        const variableValue = vars.length ? vars[Math.floor(now / 86400000) % vars.length] : '';
+        const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
         if (text) {
           items = await readQueue();
           items.push({ id: `auto-${now}`, text, topicId: topic.id || '', topicName: topic.name, type: topic.type, scheduledTs: now, status: 'pending', mediaId: '', permalink: '', error: '', auto: true });

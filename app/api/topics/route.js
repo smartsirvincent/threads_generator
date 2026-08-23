@@ -42,6 +42,8 @@ export async function POST(req) {
         imagePrompt: String(t.imagePrompt || '').slice(0, 2000),
         useLogo: !!t.useLogo,
         culture: !!t.culture,
+        varLabel: String(t.varLabel || '').slice(0, 20),
+        variables: Array.isArray(t.variables) ? t.variables.filter(Boolean).map((v) => String(v).slice(0, 40)).slice(0, 50) : [],
         treatments: Array.isArray(t.treatments) ? t.treatments.filter(Boolean).map(String).slice(0, 30) : [],
         starred: Array.isArray(t.starred) ? t.starred.filter(Boolean).map(String).slice(0, 30) : [],
         inject: {
