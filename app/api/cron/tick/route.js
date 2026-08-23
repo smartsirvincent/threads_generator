@@ -2,7 +2,7 @@
 // 外部 cron 每小時打這裡(GET);前端也可 POST 手動觸發。
 import { NextResponse } from 'next/server';
 import {
-  getThreadsCreds, publishThreadsText, appendPostLog, readPostLog,
+  getThreadsCreds, publishThreads, appendPostLog, readPostLog,
   readQueue, writeQueue, readSettings, writeSettings, readTopics, readCanonicalProfile,
   readWeekly, maybeRefreshThreadsToken,
 } from '@/lib/threads.js';
@@ -114,7 +114,7 @@ async function run() {
   const due = items.filter((x) => x.status === 'pending' && (x.scheduledTs || 0) <= now).slice(0, MAX_POST_PER_RUN);
   for (const it of due) {
     try {
-      const { mediaId, permalink } = await publishThreadsText(it.text);
+      const { mediaId, permalink } = await publishThreads(it.text, it.imageUrl || "");
       it.status = 'posted'; it.mediaId = mediaId; it.permalink = permalink; it.postedTs = Date.now();
       await appendPostLog({ ts: it.postedTs, mediaId, permalink, topicId: it.topicId, topicName: it.topicName, type: it.type, textPreview: (it.text || '').slice(0, 60) });
       out.posted++;

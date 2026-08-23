@@ -1,6 +1,6 @@
 // 排程佇列:待發貼文清單(存 Cloudinary 固定槽)。GET 列出;POST 依 action 增/刪。
 import { NextResponse } from 'next/server';
-import { readQueue, writeQueue, readPriceChanges, publishThreadsText, appendPostLog } from '@/lib/threads.js';
+import { readQueue, writeQueue, readPriceChanges, publishThreads, appendPostLog } from '@/lib/threads.js';
 import { hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
@@ -41,6 +41,7 @@ export async function POST(req) {
           id: newId(),
           text: String(x.text).slice(0, 500),
           topicId: x.topicId || '', topicName: x.topicName || '', type: x.type || '',
+          imageUrl: x.imageUrl || '',
           scheduledTs: Number(x.scheduledTs) || Date.now(),
           status: 'pending', mediaId: '', permalink: '', error: '',
         }));
@@ -69,7 +70,7 @@ export async function POST(req) {
       if (!it) return NextResponse.json({ error: '找不到該貼文' }, { status: 404 });
       if (it.status === 'posted') return NextResponse.json({ ok: true, already: true });
       try {
-        const { mediaId, permalink } = await publishThreadsText(it.text);
+        const { mediaId, permalink } = await publishThreads(it.text, it.imageUrl || '');
         it.status = 'posted'; it.mediaId = mediaId; it.permalink = permalink; it.postedTs = Date.now(); it.error = '';
         await appendPostLog({ ts: it.postedTs, mediaId, permalink, topicId: it.topicId, topicName: it.topicName, type: it.type, textPreview: (it.text || '').slice(0, 60) });
         await writeQueue(items);

@@ -1,7 +1,7 @@
 // 到點自動發文:Vercel Cron 定時打這裡,把佇列中「到期且待發」的貼文發到 Threads。
 // 也可由前端「立即檢查發送」手動觸發。
 import { NextResponse } from 'next/server';
-import { threadsCreds, publishThreadsText, appendPostLog, readQueue, writeQueue } from '@/lib/threads.js';
+import { threadsCreds, publishThreads, appendPostLog, readQueue, writeQueue } from '@/lib/threads.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -16,7 +16,7 @@ async function run() {
   let posted = 0, failed = 0;
   for (const it of due) {
     try {
-      const { mediaId, permalink } = await publishThreadsText(it.text);
+      const { mediaId, permalink } = await publishThreads(it.text, it.imageUrl || "");
       it.status = 'posted'; it.mediaId = mediaId; it.permalink = permalink; it.postedTs = Date.now();
       await appendPostLog({ ts: it.postedTs, mediaId, permalink, topicId: it.topicId, topicName: it.topicName, type: it.type, textPreview: (it.text || '').slice(0, 60) });
       posted++;

@@ -299,6 +299,7 @@ export default function SchedulePage() {
                           ) : (
                             <>
                               <div className="whitespace-pre-wrap text-sand-800">{it.text}</div>
+                              {it.imageUrl && <img src={it.imageUrl} alt="" className="mt-1 w-32 rounded-lg border border-sand-200" />}
                               {it.status === 'failed' && <div className="mt-1 text-red-600">{it.error}</div>}
                               {it.status !== 'posted' && (
                                 <div className="mt-2 flex flex-wrap gap-2">

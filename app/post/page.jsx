@@ -4,8 +4,15 @@
 import { useEffect, useState } from 'react';
 import { medicalClinicProfile, CANONICAL_PROFILE_NAME } from '@/lib/verticals.js';
 import { loadCanonicalProfile } from '@/lib/profile-store.js';
+import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
+function firstLogo(profile) {
+  const bl = profile?.brand_logos;
+  if (Array.isArray(bl)) return bl[0] || '';
+  if (typeof bl === 'string') return bl.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || '';
+  return '';
+}
 const TYPES = [
   { key: 'text', label: '純文字', emoji: '📝' },
   { key: 'long', label: '長文', emoji: '📄' },
@@ -115,6 +122,36 @@ export default function PostPage() {
     return parts.join('\n');
   }
 
+  const brandLogo = firstLogo(profile);
+  // 圖片型主題:先有文案,再依「文案內容 + 圖片提示詞 + 療程」產圖(submit→poll→finalize→疊LOGO)
+  async function genImageForPost({ topic, caption, treatment }) {
+    const product = treatment || { name: topic.name, features: '', image_focus: topic.imagePrompt || '' };
+    const sub = await fetch('/api/material/gen-image/submit', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        product, title: product.name, copy: caption, copyShort: (caption || '').slice(0, 120), copyLong: caption,
+        brand: profile.brand, brand_persona: profile.brand_persona,
+        useLogo: false, logoUrl: null, textMode: 'title_sub', includePerson: true, personDescription: '',
+        compositionPrompt: topic.imagePrompt || '', clinic, materialType: 'promo', scenePrompt: '', ratio: '1:1',
+      }),
+    });
+    const sd = await sub.json();
+    if (!sub.ok || !sd.taskId) throw new Error(sd.error || `submit HTTP ${sub.status}`);
+    let kieUrl = null;
+    for (let k = 0; k < 80; k++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const pr = await fetch(`/api/gen-image/poll?taskId=${encodeURIComponent(sd.taskId)}`, { cache: 'no-store' });
+      const pd = await pr.json();
+      if (pd.state === 'success' && pd.kieUrl) { kieUrl = pd.kieUrl; break; }
+      if (pd.state === 'fail') throw new Error(pd.error || 'KIE 生成失敗');
+    }
+    if (!kieUrl) throw new Error('生成逾時');
+    const fin = await fetch('/api/gen-image/finalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kieUrl, brand: profile.brand || 'material' }) });
+    const fd = await fin.json();
+    if (!fin.ok || !fd.url) throw new Error(fd.error || `finalize HTTP ${fin.status}`);
+    return decorateImageUrl(fd.url, { cropAr: sd.cloudinaryAr, logoUrl: (topic.useLogo && brandLogo) ? brandLogo : '' });
+  }
+
   // ---- 批次產文 ----
   const selected = topics.find((t) => t.id === selId);
   async function generateBatch() {
@@ -135,7 +172,18 @@ export default function PostPage() {
         try {
           const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, ...ctx, clinic }) });
           const d = await r.json();
-          results[i] = { id: `g-${i}-${Date.now()}`, text: r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`, keep: r.ok };
+          const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
+          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: selected.type === 'image' && r.ok, imgErr: '' };
+          done++; setGenProg({ done, total: n }); setGens(results.filter(Boolean));
+          // 圖片型主題:先產文(上面)→ 再依文案內容產圖
+          if (selected.type === 'image' && r.ok && text && !text.startsWith('⚠')) {
+            try {
+              const url = await genImageForPost({ topic: selected, caption: text, treatment: tp });
+              results[i] = { ...results[i], imageUrl: url, imgBusy: false };
+            } catch (e) { results[i] = { ...results[i], imgBusy: false, imgErr: String(e.message).slice(0, 120) }; }
+            setGens(results.filter(Boolean));
+          }
+          continue;
         } catch (e) { results[i] = { id: `g-${i}`, text: `⚠ ${e.message}`, keep: false }; }
         done++; setGenProg({ done, total: n });
         setGens(results.filter(Boolean));
@@ -177,7 +225,7 @@ export default function PostPage() {
     if (badGen(g)) { setError('這則內容無效,無法排程'); return false; }
     const when = ts || takeSlots(1)[0];
     try {
-      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items: [{ text: g.text, ...(meta || gmeta()), scheduledTs: when }] }) });
+      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items: [{ text: g.text, imageUrl: g.imageUrl || '', ...(meta || gmeta()), scheduledTs: when }] }) });
       if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
       if (!meta) removeGen(g.id);
       setActMsg(`✓ 已排程 1 則(${new Date(when).toLocaleString('zh-TW')})`);
@@ -190,7 +238,7 @@ export default function PostPage() {
     if (!confirm('確定立即發送這則到 Threads?')) return false;
     setActMsg('發送中…');
     try {
-      const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, ...(meta || gmeta()) }) });
+      const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, imageUrl: g.imageUrl || '', ...(meta || gmeta()) }) });
       if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
       if (!meta) removeGen(g.id);
       setActMsg('✓ 已發送 1 則');
@@ -203,7 +251,7 @@ export default function PostPage() {
     setActMsg('送排程中…'); setError('');
     try {
       const ts = takeSlots(kept.length);
-      const items = kept.map((g, i) => ({ text: g.text, ...gmeta(), scheduledTs: ts[i] }));
+      const items = kept.map((g, i) => ({ text: g.text, imageUrl: g.imageUrl || '', ...gmeta(), scheduledTs: ts[i] }));
       const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setActMsg(`✓ 已送 ${d.added} 則到排程 — 到「🗓 排程」查看`);
@@ -240,7 +288,7 @@ export default function PostPage() {
     let ok = 0;
     for (const g of kept) {
       try {
-        const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, ...gmeta() }) });
+        const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, imageUrl: g.imageUrl || '', ...gmeta() }) });
         if (r.ok) { ok++; removeGen(g.id); }
       } catch (_) {}
       setActMsg(`發送中… ${ok}/${kept.length}`);
@@ -369,9 +417,12 @@ export default function PostPage() {
                           <label className="flex items-center gap-2 text-xs text-sand-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-sand-300 text-brand-600" />第 {i + 1} 則 <span className={g.text.length > 500 ? 'text-red-600' : 'text-sand-400'}>({g.text.length}/500)</span></label>
                         </div>
                         <textarea className="input min-h-[90px] text-sm" value={g.text} onChange={(e) => updateGen(g.id, { text: e.target.value })} />
+                        {g.imgBusy && <p className="mt-2 text-xs text-brand-600">🖼 依文案產圖中…(約 30-60 秒)</p>}
+                        {g.imgErr && <p className="mt-2 text-xs text-red-600">圖片生成失敗:{g.imgErr}</p>}
+                        {g.imageUrl && <img src={g.imageUrl} alt="" className="mt-2 w-40 rounded-xl border border-sand-200" />}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <button type="button" onClick={() => postOne(g)} disabled={badGen(g)} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
-                          <button type="button" onClick={() => queueOne(g)} disabled={badGen(g)} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 存入排程</button>
+                          <button type="button" onClick={() => postOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
+                          <button type="button" onClick={() => queueOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 存入排程</button>
                           <button type="button" onClick={() => removeGen(g.id)} className="rounded-lg border border-sand-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">🗑 刪除</button>
                         </div>
                       </div>
