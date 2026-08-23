@@ -38,6 +38,7 @@ export default function PostPage() {
   const [bsType, setBsType] = useState('text');
   const [bsKeyword, setBsKeyword] = useState('');
   const [bsCount, setBsCount] = useState(4);
+  const [bsCulture, setBsCulture] = useState(false); // 純泰國文化模式
   const [suggestions, setSuggestions] = useState([]);
   const [bsBusy, setBsBusy] = useState(false);
 
@@ -73,7 +74,7 @@ export default function PostPage() {
   async function brainstorm() {
     setBsBusy(true); setError(''); setSuggestions([]);
     try {
-      const r = await fetch('/api/post/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: bsType, count: bsCount, keyword: bsKeyword, ...ctx, clinic }) });
+      const r = await fetch('/api/post/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: bsType, count: bsCount, keyword: bsKeyword, culture: bsCulture, ...ctx, clinic }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setSuggestions((d.topics || []).map((t) => ({ ...t, _picked: true })));
     } catch (e) { setError('主題發想失敗:' + e.message); } finally { setBsBusy(false); }
@@ -81,7 +82,7 @@ export default function PostPage() {
   function addPicked() {
     const picked = suggestions.filter((s) => s._picked);
     if (!picked.length) return;
-    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, enabled: true }))]);
+    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, enabled: true }))]);
     setSuggestions([]); setDirty(true); setSaveMsg('已加入,記得按「存檔到雲端」');
   }
   function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
@@ -177,7 +178,7 @@ export default function PostPage() {
         const tp = pickList.length ? pickList[(seedBase + i) % pickList.length] : null;
         const treatmentContext = buildTreatmentContext(selected, tp);
         try {
-          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, ...ctx, clinic }) });
+          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
           results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: genImages && r.ok, imgErr: '' };
@@ -327,9 +328,13 @@ export default function PostPage() {
                 <div className="flex gap-1.5">{TYPES.map((t) => (<button key={t.key} type="button" onClick={() => setBsType(t.key)} className={`rounded-full border px-3 py-1 text-xs ${bsType === t.key ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-600 hover:bg-brand-50'}`}>{t.emoji} {t.label}</button>))}</div>
               </div>
               <div><label className="label text-xs">幾個</label><select className="input text-sm" value={bsCount} onChange={(e) => setBsCount(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
-              <div className="flex-1 min-w-[180px]"><label className="label text-xs">方向/關鍵字(選填)</label><input className="input text-sm" value={bsKeyword} onChange={(e) => setBsKeyword(e.target.value)} placeholder="例:海芙音波、通羅咖啡廳" /></div>
+              <div className="flex-1 min-w-[180px]"><label className="label text-xs">方向/關鍵字(選填)</label><input className="input text-sm" value={bsKeyword} onChange={(e) => setBsKeyword(e.target.value)} placeholder={bsCulture ? '例:潑水節、路邊小吃、搭 BTS' : '例:海芙音波、通羅咖啡廳'} /></div>
               <button type="button" onClick={brainstorm} disabled={bsBusy} className="btn-primary text-sm disabled:opacity-50">{bsBusy ? '發想中…' : '💡 AI 推薦'}</button>
             </div>
+            <label className="flex items-center gap-2 rounded-xl border border-sand-200 bg-sand-50 px-3 py-2 text-sm text-sand-700">
+              <input type="checkbox" checked={bsCulture} onChange={(e) => setBsCulture(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
+              🇹🇭 純泰國文化 / 旅遊(完全不談產品、品牌、療程、促銷)
+            </label>
             {suggestions.length > 0 && (
               <div className="space-y-2 border-t border-sand-200 pt-3">
                 {suggestions.map((s, i) => (
@@ -365,11 +370,13 @@ export default function PostPage() {
                     </select>
                     <input className="input flex-1 min-w-[140px] text-sm" value={t.name} placeholder="主題名稱(≤10字)" onChange={(e) => updateTopic(t.id, { name: e.target.value })} />
                     <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={t.enabled !== false} onChange={(e) => updateTopic(t.id, { enabled: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />啟用</label>
+                    <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={!!t.culture} onChange={(e) => updateTopic(t.id, { culture: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🇹🇭 純文化</label>
                     <button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button>
                   </div>
+                  {t.culture && <p className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] text-blue-700">🇹🇭 純泰國文化模式:產文只介紹泰國文化/旅遊,不談產品/品牌/療程/優惠(綁定療程不會生效)</p>}
 
-                  {/* 綁定療程(整篇文＋圖共用) */}
-                  <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+                  {/* 綁定療程(整篇文＋圖共用;純文化主題可略) */}
+                  {!t.culture && <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
 
                   {/* 文案提示詞 */}
                   <div>

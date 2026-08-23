@@ -23,23 +23,38 @@ const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群內容�
 **主題名稱務必精簡在 10 個字以內**(只是分類標籤,細節寫在提示詞裡)。
 輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"依上述固定格式的彈性 brief(核心訊息+至少5個可選切角+可帶素材+語氣),100-180字,不含任何固定開場/結尾句"}]}`;
 
+// 純泰國文化/旅遊:完全不談產品、品牌、療程、促銷
+const CULTURE_SYSTEM = `你是經營一個「曼谷在地生活/旅遊」風格 Threads 帳號的內容策略師,口吻像親暱真誠的閨蜜。
+請發想「純泰國文化 / 旅遊」主題,**完全不談任何產品、品牌、醫美療程、診所、促銷或優惠**,就是單純介紹泰國的文化、生活、旅遊、美食、節慶、景點、交通、購物、語言、禮俗、小知識、旅遊撇步等,讓讀者覺得有趣、實用、想收藏或分享。
+提示詞寫法(關鍵):同一主題會產很多篇,提示詞要寫成有彈性的 brief,用固定格式:
+「核心訊息:(一句話)。可選切角(每篇挑一個深入,不要全用):①… ②… ③… ④… ⑤…(至少5個具體、彼此不同的角度/故事點)。語氣:…。」
+硬性規定:不准寫固定開場白、不准指定範例開場句、不准規定固定條列點數、不准指定固定結尾句;不得出現任何產品/品牌/療程/優惠字眼。主題名稱≤10字。
+輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"彈性 brief,100-180字"}]}`;
+
 export async function POST(req) {
   try {
-    const { type = 'text', count = 4, keyword = '', brand, brand_persona, audience, clinic } = await req.json();
+    const { type = 'text', count = 4, keyword = '', brand, brand_persona, audience, clinic, culture = false } = await req.json();
     const t = ['text', 'long', 'image'].includes(type) ? type : 'text';
     const clinicText = clinicContextText(clinic);
-    const user = `**貼文型別**: ${t} — ${TYPE_HINT[t]}
+    const n = Math.min(Math.max(Number(count) || 4, 1), 8);
+    const user = culture
+      ? `**貼文型別**: ${t} — ${TYPE_HINT[t]}
+${keyword ? `**參考主題/方向**: ${keyword}` : ''}
+**受眾**: ${audience || '20-45 歲、喜歡泰國旅遊的台灣女性'}
+
+請發想 ${n} 個「${t}」型別的「純泰國文化/旅遊」主題(完全不談產品/品牌/療程/促銷),每個附彈性 brief。直接回 JSON。`
+      : `**貼文型別**: ${t} — ${TYPE_HINT[t]}
 ${keyword ? `**參考關鍵字/方向**: ${keyword}` : ''}
 **診所**: ${brand || '泰國醫美 Best Friend'}
 **口吻**: ${brand_persona || '閨蜜、真誠、務實'}
 **受眾**: ${audience || '20-45 歲、想到曼谷旅遊順便變美的台灣女性'}
 ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
 
-請發想 ${Math.min(Math.max(Number(count) || 4, 1), 8)} 個「${t}」型別的主題,每個附提示詞。直接回 JSON。`;
-    const parsed = await callJSON({ system: SYSTEM, user, maxTokens: 2000, temperature: 0.95 });
+請發想 ${n} 個「${t}」型別的主題,每個附提示詞。直接回 JSON。`;
+    const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 2000, temperature: 0.95 });
     const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
       .filter((x) => x && x.name)
-      .map((x) => ({ type: t, name: String(x.name).replace(/\s+/g, '').slice(0, 10), prompt: String(x.prompt || '').slice(0, 500) }));
+      .map((x) => ({ type: t, name: String(x.name).replace(/\s+/g, '').slice(0, 10), prompt: String(x.prompt || '').slice(0, 500), culture: !!culture }));
     return NextResponse.json({ topics });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
