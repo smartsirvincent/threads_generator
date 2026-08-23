@@ -127,10 +127,15 @@ export default function PostPage() {
   // 圖片型主題:先有文案,再依「文案內容 + 圖片提示詞 + 療程」產圖(submit→poll→finalize→疊LOGO)
   async function genImageForPost({ topic, caption, treatment }) {
     const product = treatment || { name: topic.name, features: '', image_focus: topic.imagePrompt || '' };
+    const inj = topic.inject || {};
+    // 圖上文字:主標=療程名(若帶入名稱)、副標=優惠價(若帶入價格,取第一組較精簡)
+    const title = (inj.name !== false ? (product.name || topic.name) : (topic.name || '')) || '';
+    const priceLine = product.promo_offer ? String(product.promo_offer).split(/[｜|]/)[0].trim().slice(0, 30) : '';
+    const subtitle = (inj.price !== false && priceLine) ? `優惠價 ${priceLine}` : '';
     const sub = await fetch('/api/material/gen-image/submit', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        product, title: product.name, copy: caption, copyShort: (caption || '').slice(0, 120), copyLong: caption,
+        product, title, subtitle, copy: caption, copyShort: (caption || '').slice(0, 120), copyLong: caption,
         brand: profile.brand, brand_persona: profile.brand_persona,
         useLogo: false, logoUrl: null, textMode: 'title_sub', includePerson: true, personDescription: '',
         compositionPrompt: topic.imagePrompt || '', clinic, materialType: 'promo', scenePrompt: '', ratio: '1:1',
