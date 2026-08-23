@@ -1,18 +1,19 @@
 // 一鍵發到 Threads(立即)+ 依主題寫入發文 log
 import { NextResponse } from 'next/server';
-import { threadsCreds, publishThreadsText, appendPostLog } from '@/lib/threads.js';
+import { getThreadsCreds, publishThreadsText, appendPostLog } from '@/lib/threads.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 export async function GET() {
-  return NextResponse.json({ configured: threadsCreds().ok });
+  const c = await getThreadsCreds();
+  return NextResponse.json({ configured: c.ok });
 }
 
 export async function POST(req) {
   try {
-    if (!threadsCreds().ok) {
-      return NextResponse.json({ error: 'Threads 尚未設定。請在 Vercel 加入 THREADS_USER_ID 與 THREADS_ACCESS_TOKEN。', configured: false }, { status: 503 });
+    if (!(await getThreadsCreds()).ok) {
+      return NextResponse.json({ error: 'Threads 尚未設定。請到「內容發文 → 排程」的「Threads 連線」設定。', configured: false }, { status: 503 });
     }
     const { text, topicId = '', topicName = '', type = '' } = await req.json();
     const { mediaId, permalink } = await publishThreadsText(text);

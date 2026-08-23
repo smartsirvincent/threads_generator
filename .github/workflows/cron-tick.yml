@@ -1,0 +1,29 @@
+name: threads-cron-tick
+
+# 外部 cron:每小時打一次 /api/cron/tick
+#   ① 發送到期的排程貼文  ② 每日自動產文(若開啟)  ③ Threads token 剩 <10 天自動續期
+# 跑在 GitHub 雲端,與本機開關機無關。也可到 Actions 分頁手動 Run workflow。
+#
+# 選用安全機制:若在 Vercel 設了環境變數 CRON_SECRET,請同時在
+#   GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+#   建立同名同值的 CRON_SECRET。未設則此端點為公開觸發(僅處理自己佇列,風險低)。
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # 每小時整點(UTC)
+  workflow_dispatch: {}    # 允許手動觸發
+
+concurrency:
+  group: threads-cron-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: hit tick endpoint
+        run: |
+          curl -sS -m 300 -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://threads-generator-flax.vercel.app/api/cron/tick"
+          echo ""

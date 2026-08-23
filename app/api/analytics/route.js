@@ -1,6 +1,6 @@
 // 成效分析:讀發文 log,依期間 + 型態 + 主題彙整;有 Threads 權杖則抓每篇 insights
 import { NextResponse } from 'next/server';
-import { readPostLog } from '@/lib/threads.js';
+import { readPostLog, getThreadsCreds } from '@/lib/threads.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -39,7 +39,7 @@ export async function GET(req) {
     const now = Date.now();
     const from = Number(url.searchParams.get('from')) || (now - 30 * 86400000);
     const to = Number(url.searchParams.get('to')) || now;
-    const token = process.env.THREADS_ACCESS_TOKEN;
+    const { token } = await getThreadsCreds();
     const hasInsights = !!token;
 
     const all = await readPostLog();
