@@ -45,6 +45,7 @@ export default function PostPage() {
   const [selId, setSelId] = useState('');
   const [genImages, setGenImages] = useState(false); // 產文時一併產圖
   const [count, setCount] = useState(5);
+  const [lightbox, setLightbox] = useState('');
   const [gens, setGens] = useState([]); // [{id,text,keep}]
   const [genBusy, setGenBusy] = useState(false);
   const [genProg, setGenProg] = useState({ done: 0, total: 0 });
@@ -430,7 +431,7 @@ export default function PostPage() {
                         <textarea className="input min-h-[90px] text-sm" value={g.text} onChange={(e) => updateGen(g.id, { text: e.target.value })} />
                         {g.imgBusy && <p className="mt-2 text-xs text-brand-600">🖼 依文案產圖中…(約 30-60 秒)</p>}
                         {g.imgErr && <p className="mt-2 text-xs text-red-600">圖片生成失敗:{g.imgErr}</p>}
-                        {g.imageUrl && <img src={g.imageUrl} alt="" className="mt-2 w-40 rounded-xl border border-sand-200" />}
+                        {g.imageUrl && <img src={g.imageUrl} alt="" onClick={() => setLightbox(g.imageUrl)} className="mt-2 w-40 cursor-zoom-in rounded-xl border border-sand-200 transition hover:opacity-90" />}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <button type="button" onClick={() => postOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
                           <button type="button" onClick={() => queueOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 存入排程</button>
@@ -513,6 +514,13 @@ export default function PostPage() {
       )}
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">❌ {error}</div>}
+
+      {lightbox && (
+        <div onClick={() => setLightbox('')} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <img src={lightbox} alt="" className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-lift" />
+          <button type="button" onClick={() => setLightbox('')} className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-sm text-sand-700">✕ 關閉</button>
+        </div>
+      )}
     </main>
   );
 }

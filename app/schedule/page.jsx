@@ -32,6 +32,7 @@ export default function SchedulePage() {
   const [editId, setEditId] = useState('');
   const [editText, setEditText] = useState('');
   const [sendingId, setSendingId] = useState('');
+  const [lightbox, setLightbox] = useState('');
   // 每週排程範本
   const [topics, setTopics] = useState([]);
   const [slots, setSlots] = useState([]);
@@ -158,8 +159,44 @@ export default function SchedulePage() {
           </div>
         </div>
 
-        {/* 新增時段 */}
+        {/* 時間 × 星期 格子(首圖:清楚看每週每時段發什麼) */}
+        {slots.length === 0 ? (
+          <p className="text-xs text-sand-400">還沒有每週排程。用下方「新增時段」建立「每週幾、幾點、發哪個主題」,存檔後 cron 會每天照表自動產文並排入佇列。</p>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-sand-200">
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-8 border-b border-sand-200 bg-sand-50 py-2 text-[11px] font-medium text-sand-500">
+                <div className="px-3">時間</div>
+                {WEEK.map(({ d, label }) => <div key={d} className={`px-2 ${d === todayDow ? 'font-semibold text-brand-700' : ''}`}>{label}{d === todayDow ? ' ·今天' : ''}</div>)}
+              </div>
+              {times.map((tm) => (
+                <div key={tm} className="grid grid-cols-8 items-start border-b border-sand-100 py-2 last:border-0">
+                  <div className="px-3 pt-1 text-xs font-medium text-sand-500">{tm}</div>
+                  {WEEK.map(({ d }) => (
+                    <div key={d} className={`px-1.5 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
+                      {(slotAt[`${tm}|${d}`] || []).map((s) => {
+                        const tp = topicById[s.topicId];
+                        return (
+                          <div key={s.id} className={`group mb-1 rounded-md border border-l-4 border-sand-200 bg-white px-2 py-1.5 shadow-soft ${slotColor(tp?.type, tp?.name)}`}>
+                            <div className="flex items-start justify-between gap-1">
+                              <span className="text-[11px] font-medium leading-tight text-sand-800">{tp?.name || '(主題已刪)'}</span>
+                              <button type="button" onClick={() => removeSlot(s.id)} className="shrink-0 text-[11px] text-sand-300 hover:text-red-600">✕</button>
+                            </div>
+                            <span className="mt-0.5 inline-block rounded bg-sand-100 px-1 text-[9px] text-sand-500">{TYPE_LABEL[tp?.type] || '—'}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 新增時段(在格子下方) */}
         <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-2">
+          <p className="text-xs font-medium text-sand-600">＋ 新增時段</p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex-1 min-w-[180px]">
               <label className="label text-xs">主題</label>
@@ -182,41 +219,6 @@ export default function SchedulePage() {
           </div>
           <button type="button" onClick={addSlots} className="btn-secondary text-sm">＋ 加入排程</button>
         </div>
-
-        {/* 時間 × 星期 格子 */}
-        {slots.length === 0 ? (
-          <p className="text-xs text-sand-400">還沒有每週排程。用上方「加入排程」建立「每週幾、幾點、發哪個主題」,存檔後 cron 會每天照表自動產文並排入佇列。</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <div className="min-w-[720px]">
-              <div className="grid grid-cols-8 border-b border-sand-200 pb-1 text-[11px] font-medium text-sand-500">
-                <div className="px-2">TIME</div>
-                {WEEK.map(({ d, label }) => <div key={d} className={`px-2 ${d === todayDow ? 'text-brand-700' : ''}`}>{label}{d === todayDow ? ' ·今天' : ''}</div>)}
-              </div>
-              {times.map((tm) => (
-                <div key={tm} className="grid grid-cols-8 items-start border-b border-sand-100 py-1.5">
-                  <div className="px-2 pt-1 text-xs font-medium text-sand-500">{tm}</div>
-                  {WEEK.map(({ d }) => (
-                    <div key={d} className={`px-1 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
-                      {(slotAt[`${tm}|${d}`] || []).map((s) => {
-                        const tp = topicById[s.topicId];
-                        return (
-                          <div key={s.id} className={`group mb-1 rounded-md border border-l-4 border-sand-200 bg-white px-2 py-1 shadow-soft ${slotColor(tp?.type, tp?.name)}`}>
-                            <div className="flex items-start justify-between gap-1">
-                              <span className="truncate text-[11px] font-medium text-sand-800">{tp?.name || '(主題已刪)'}</span>
-                              <button type="button" onClick={() => removeSlot(s.id)} className="shrink-0 text-[11px] text-sand-300 hover:text-red-600">✕</button>
-                            </div>
-                            <span className="rounded bg-sand-100 px-1 text-[9px] text-sand-500">{TYPE_LABEL[tp?.type] || '—'}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 佇列管理:依主題篩選 + 分組 + 逐則操作 */}
@@ -299,7 +301,7 @@ export default function SchedulePage() {
                           ) : (
                             <>
                               <div className="whitespace-pre-wrap text-sand-800">{it.text}</div>
-                              {it.imageUrl && <img src={it.imageUrl} alt="" className="mt-1 w-32 rounded-lg border border-sand-200" />}
+                              {it.imageUrl && <img src={it.imageUrl} alt="" onClick={() => setLightbox(it.imageUrl)} className="mt-1 w-32 cursor-zoom-in rounded-lg border border-sand-200 transition hover:opacity-90" />}
                               {it.status === 'failed' && <div className="mt-1 text-red-600">{it.error}</div>}
                               {it.status !== 'posted' && (
                                 <div className="mt-2 flex flex-wrap gap-2">
@@ -322,6 +324,13 @@ export default function SchedulePage() {
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">❌ {error}</div>}
+
+      {lightbox && (
+        <div onClick={() => setLightbox('')} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <img src={lightbox} alt="" className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-lift" />
+          <button type="button" onClick={() => setLightbox('')} className="absolute right-4 top-4 rounded-full bg-white/90 px-3 py-1 text-sm text-sand-700">✕ 關閉</button>
+        </div>
+      )}
     </main>
   );
 }
