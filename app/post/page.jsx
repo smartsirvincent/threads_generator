@@ -77,6 +77,8 @@ export default function PostPage() {
   }
   function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
   function deleteTopic(id) { setTopics((arr) => arr.filter((t) => t.id !== id)); setDirty(true); }
+  function addManualTopic() { setTopics((arr) => [{ id: newId(), type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
+  function insertToPrompt(id, field, text) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, [field]: ((t[field] || '').trim() ? (t[field].trim() + '，') : '') + text } : t)); setDirty(true); }
   async function saveTopics() {
     setSaveMsg('儲存中…'); setError('');
     try {
@@ -85,6 +87,11 @@ export default function PostPage() {
       setDirty(false); setSaveMsg(`✓ 已存 ${d.count} 個主題`); setTimeout(() => setSaveMsg(''), 2500);
     } catch (e) { setSaveMsg(''); setError('存檔失敗:' + e.message); }
   }
+
+  // 提示詞可插入的療程(帶價)、變數、方向靈感
+  const treatments = (profile.products || []).filter((p) => p && p.name).map((p) => ({ name: p.name, price: p.promo_offer || '' }));
+  const VARS = ['每人 5,000 醫美券直接抵', '逐句翻譯零溝通障礙', '回台後 LINE 隨時問', '自有醫師不是租的', '曼谷景點順遊', '術後照護提醒'];
+  const DIRECTIONS = ['破除迷思', '真實心得', '價格划算', '適合誰/不適合', '術後照護', '曼谷順遊', '閨蜜見證', '諮詢常見問答'];
 
   // ---- 批次產文 ----
   const selected = topics.find((t) => t.id === selId);
@@ -255,16 +262,47 @@ export default function PostPage() {
             )}
           </div>
           <div className="card space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-sm font-semibold text-sand-800">2. 我的主題庫 <span className="font-normal text-sand-500">({topics.length})</span></h2>
-              <div className="flex items-center gap-2">{saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}<button type="button" onClick={saveTopics} disabled={!dirty} className="btn-primary text-xs disabled:opacity-40">💾 存檔到雲端{dirty ? ' *' : ''}</button></div>
+              <div className="flex items-center gap-2">
+                {saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}
+                <button type="button" onClick={addManualTopic} className="btn-secondary text-xs">＋ 手動新增主題</button>
+                <button type="button" onClick={saveTopics} disabled={!dirty} className="btn-primary text-xs disabled:opacity-40">💾 存檔到雲端{dirty ? ' *' : ''}</button>
+              </div>
             </div>
-            {topics.length === 0 && <p className="text-xs text-sand-400">還沒有主題,先用上方「AI 推薦」加入。</p>}
-            <div className="space-y-2">
+            <p className="rounded-xl bg-sand-50 px-3 py-2 text-[11px] leading-relaxed text-sand-500">
+              提示詞方向靈感:{DIRECTIONS.join('、')}。可插入變數:療程名＋價格、5,000 醫美券、逐句翻譯、自有醫師、曼谷順遊等(見各欄下方按鈕)。提示詞寫成「方向＋多個可選角度」最好,不要寫死固定開場/結尾,系列才不會每篇都一樣。
+            </p>
+            {topics.length === 0 && <p className="text-xs text-sand-400">還沒有主題,用上方「AI 推薦」或「手動新增主題」建立。</p>}
+            <div className="space-y-3">
               {topics.map((t) => (
-                <div key={t.id} className="rounded-2xl border border-sand-200 p-3">
-                  <div className="flex items-center gap-2"><span className="rounded-full bg-gold-100 px-2 py-0.5 text-[11px] text-gold-700">{typeMeta(t.type).emoji} {typeMeta(t.type).label}</span><input className="input flex-1 text-sm" value={t.name} onChange={(e) => updateTopic(t.id, { name: e.target.value })} /><button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button></div>
-                  <textarea className="input mt-1 min-h-[46px] text-xs" value={t.prompt} placeholder="提示詞" onChange={(e) => updateTopic(t.id, { prompt: e.target.value })} />
+                <div key={t.id} className="rounded-2xl border border-sand-200 p-3 space-y-2">
+                  {/* 型別 + 名稱 + 啟用 + 刪除 */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select className="input w-auto py-1.5 text-xs" value={t.type} onChange={(e) => updateTopic(t.id, { type: e.target.value })}>
+                      {TYPES.map((ty) => <option key={ty.key} value={ty.key}>{ty.emoji} {ty.label}</option>)}
+                    </select>
+                    <input className="input flex-1 min-w-[140px] text-sm" value={t.name} placeholder="主題名稱(≤10字)" onChange={(e) => updateTopic(t.id, { name: e.target.value })} />
+                    <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={t.enabled !== false} onChange={(e) => updateTopic(t.id, { enabled: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />啟用</label>
+                    <button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button>
+                  </div>
+
+                  {/* 文案提示詞 */}
+                  <div>
+                    <label className="label text-[11px]">文案提示詞</label>
+                    <textarea className="input min-h-[60px] text-xs" value={t.prompt} placeholder="給產文 AI 的方向與可選角度(不要寫死固定開場/結尾)" onChange={(e) => updateTopic(t.id, { prompt: e.target.value })} />
+                    <InsertBar treatments={treatments} vars={VARS} dirs={DIRECTIONS} onInsert={(text) => insertToPrompt(t.id, 'prompt', text)} />
+                  </div>
+
+                  {/* 圖片提示詞 + LOGO */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="label text-[11px]">圖片提示詞(圖片型可用)</label>
+                      <label className="flex items-center gap-1 text-[11px] text-sand-600"><input type="checkbox" checked={!!t.useLogo} onChange={(e) => updateTopic(t.id, { useLogo: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🅛 圖片帶 LOGO</label>
+                    </div>
+                    <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
+                    <InsertBar treatments={treatments} vars={[]} dirs={[]} onInsert={(text) => insertToPrompt(t.id, 'imagePrompt', text)} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -386,5 +424,25 @@ export default function PostPage() {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">❌ {error}</div>}
     </main>
+  );
+}
+
+// 提示詞插入列:點療程(帶價)/變數/方向,把文字接到對應提示詞
+function InsertBar({ treatments, vars, dirs, onInsert }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {treatments.length > 0 && (
+        <select className="rounded-lg border border-sand-200 bg-white px-1.5 py-1 text-[11px] text-sand-600" value="" onChange={(e) => { const p = treatments.find((x) => x.name === e.target.value); if (p) onInsert(p.price ? `「${p.name}」(參考價:${p.price})` : `「${p.name}」`); e.target.value = ''; }}>
+          <option value="">＋療程/價格…</option>
+          {treatments.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </select>
+      )}
+      {(vars || []).map((v) => (
+        <button key={v} type="button" onClick={() => onInsert(v)} className="rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] text-brand-700 hover:bg-brand-100">＋{v}</button>
+      ))}
+      {(dirs || []).map((d) => (
+        <button key={d} type="button" onClick={() => onInsert(`可從「${d}」角度切入`)} className="rounded-full border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-500 hover:bg-sand-50">#{d}</button>
+      ))}
+    </div>
   );
 }

@@ -39,6 +39,8 @@ export async function POST(req) {
         type: ['text', 'long', 'image'].includes(t.type) ? t.type : 'text',
         name: String(t.name).slice(0, 80),
         prompt: String(t.prompt || '').slice(0, 2000),
+        imagePrompt: String(t.imagePrompt || '').slice(0, 2000),
+        useLogo: !!t.useLogo,
         enabled: t.enabled !== false,
       }));
     const buffer = Buffer.from(JSON.stringify({ topics: clean, savedAt: Date.now() }, null, 2), 'utf-8');
