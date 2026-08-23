@@ -93,6 +93,30 @@ export default function PostPage() {
   const VARS = ['每人 5,000 醫美券直接抵', '逐句翻譯零溝通障礙', '回台後 LINE 隨時問', '自有醫師不是租的', '曼谷景點順遊', '術後照護提醒'];
   const DIRECTIONS = ['破除迷思', '真實心得', '價格划算', '適合誰/不適合', '術後照護', '曼谷順遊', '閨蜜見證', '諮詢常見問答'];
 
+  // 依主題綁定的療程 + 混用方式,排出「取用清單」(輪流=各一次;比例=依權重重複)
+  function buildTreatmentPickList(topic) {
+    const names = topic?.treatments || [];
+    const prods = names.map((nm) => (profile.products || []).find((p) => p.name === nm)).filter(Boolean);
+    if (!prods.length) return [];
+    if (topic.mix === 'weight') {
+      const list = [];
+      for (const p of prods) { const w = Math.max(1, Number(topic.weights?.[p.name]) || 1); for (let k = 0; k < w; k++) list.push(p); }
+      return list;
+    }
+    return prods;
+  }
+  // 依「要帶入哪些變數」把該療程資訊組成文字(給文案/圖片提示詞用)
+  function buildTreatmentContext(topic, p) {
+    if (!p) return '';
+    const inj = topic.inject || {};
+    const parts = [];
+    if (inj.name !== false) parts.push(`療程名稱:${p.name}`);
+    if (inj.price !== false && p.promo_offer) parts.push(`價格優惠:${p.promo_offer}`);
+    if (p.features) parts.push(`特點:${p.features}`);
+    if (inj.imageFocus !== false && p.image_focus) parts.push(`強化圖片方向:${p.image_focus}`);
+    return parts.join('\n');
+  }
+
   // ---- 批次產文 ----
   const selected = topics.find((t) => t.id === selId);
   async function generateBatch() {
@@ -101,13 +125,17 @@ export default function PostPage() {
     setGenBusy(true); setError(''); setActMsg(''); setGens([]); setGenProg({ done: 0, total: n });
     const results = new Array(n).fill(null);
     const seedBase = Math.floor(Math.random() * 210); // 每批隨機起點,批間也不同(210=各軸長度 LCM)
+    // 綁定療程:依「輪流 / 指定比例」排出取用清單,產文時輪替帶入
+    const pickList = buildTreatmentPickList(selected);
     let done = 0, cursor = 0;
     const CONC = 3;
     async function worker() {
       while (cursor < n) {
         const i = cursor++;
+        const tp = pickList.length ? pickList[(seedBase + i) % pickList.length] : null;
+        const treatmentContext = buildTreatmentContext(selected, tp);
         try {
-          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, ...ctx, clinic }) });
+          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, ...ctx, clinic }) });
           const d = await r.json();
           results[i] = { id: `g-${i}-${Date.now()}`, text: r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`, keep: r.ok };
         } catch (e) { results[i] = { id: `g-${i}`, text: `⚠ ${e.message}`, keep: false }; }
@@ -303,6 +331,9 @@ export default function PostPage() {
                     <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
                     <InsertBar treatments={treatments} vars={[]} dirs={[]} onInsert={(text) => insertToPrompt(t.id, 'imagePrompt', text)} />
                   </div>
+
+                  {/* 綁定療程:複選 + 輪流/比例 + 帶入變數 */}
+                  <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
                 </div>
               ))}
             </div>
@@ -424,6 +455,68 @@ export default function PostPage() {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">❌ {error}</div>}
     </main>
+  );
+}
+
+// 綁定療程:複選療程 + 輪流/指定比例 + 選擇要帶入的變數
+function TreatmentBinder({ allProducts, topic, onChange }) {
+  const [open, setOpen] = useState(false);
+  const sel = topic.treatments || [];
+  const inj = topic.inject || {};
+  const mix = topic.mix || 'rotate';
+  function toggle(name) {
+    const next = sel.includes(name) ? sel.filter((n) => n !== name) : [...sel, name];
+    onChange({ treatments: next });
+  }
+  function setWeight(name, v) { onChange({ weights: { ...(topic.weights || {}), [name]: Math.max(1, Number(v) || 1) } }); }
+  function setInject(k, v) { onChange({ inject: { name: inj.name !== false, price: inj.price !== false, imageFocus: inj.imageFocus !== false, [k]: v } }); }
+  return (
+    <div className="rounded-xl border border-sand-200 bg-sand-50/60 p-2">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between text-left text-[11px] font-medium text-sand-700">
+        <span>💉 綁定療程{sel.length ? ` (${sel.length})` : '(未綁定)'}</span>
+        <span className="text-sand-400">{open ? '收合 ▾' : '展開 ▸'}</span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {allProducts.filter((p) => p && p.name).map((p) => {
+              const on = sel.includes(p.name);
+              return (
+                <button key={p.name} type="button" onClick={() => toggle(p.name)} className={`rounded-full border px-2 py-0.5 text-[11px] ${on ? 'border-brand-400 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>
+                  {on ? '✓ ' : ''}{p.name}
+                </button>
+              );
+            })}
+            {allProducts.length === 0 && <span className="text-[11px] text-sand-400">品牌療程庫是空的(到「品牌與療程」新增)。</span>}
+          </div>
+          {sel.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-sand-600">
+                <span>取用方式:</span>
+                <label className="flex items-center gap-1"><input type="radio" checked={mix === 'rotate'} onChange={() => onChange({ mix: 'rotate' })} />輪流</label>
+                <label className="flex items-center gap-1"><input type="radio" checked={mix === 'weight'} onChange={() => onChange({ mix: 'weight' })} />指定強化比例</label>
+              </div>
+              {mix === 'weight' && (
+                <div className="flex flex-wrap gap-2">
+                  {sel.map((n) => (
+                    <span key={n} className="flex items-center gap-1 rounded-lg border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-700">
+                      {n}<input type="number" min={1} max={9} value={topic.weights?.[n] || 1} onChange={(e) => setWeight(n, e.target.value)} className="w-10 rounded border border-sand-200 px-1 text-center" />倍
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-sand-600">
+                <span>帶入變數:</span>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.name !== false} onChange={(e) => setInject('name', e.target.checked)} />療程名稱</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.price !== false} onChange={(e) => setInject('price', e.target.checked)} />價格優惠</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.imageFocus !== false} onChange={(e) => setInject('imageFocus', e.target.checked)} />強化圖片方向</label>
+              </div>
+              <p className="text-[11px] text-sand-400">產文時會依上面設定,輪替把所選療程的名稱／價格／圖片方向自動帶進文案(與圖片)提示詞,同批不同篇帶不同療程。</p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

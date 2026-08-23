@@ -41,6 +41,14 @@ export async function POST(req) {
         prompt: String(t.prompt || '').slice(0, 2000),
         imagePrompt: String(t.imagePrompt || '').slice(0, 2000),
         useLogo: !!t.useLogo,
+        treatments: Array.isArray(t.treatments) ? t.treatments.filter(Boolean).map(String).slice(0, 30) : [],
+        mix: t.mix === 'weight' ? 'weight' : 'rotate',
+        weights: (t.weights && typeof t.weights === 'object') ? t.weights : {},
+        inject: {
+          name: t.inject?.name !== false,
+          price: t.inject?.price !== false,
+          imageFocus: t.inject?.imageFocus !== false,
+        },
         enabled: t.enabled !== false,
       }));
     const buffer = Buffer.from(JSON.stringify({ topics: clean, savedAt: Date.now() }, null, 2), 'utf-8');
