@@ -93,17 +93,15 @@ export default function PostPage() {
   const VARS = ['每人 5,000 醫美券直接抵', '逐句翻譯零溝通障礙', '回台後 LINE 隨時問', '自有醫師不是租的', '曼谷景點順遊', '術後照護提醒'];
   const DIRECTIONS = ['破除迷思', '真實心得', '價格划算', '適合誰/不適合', '術後照護', '曼谷順遊', '閨蜜見證', '諮詢常見問答'];
 
-  // 依主題綁定的療程 + 混用方式,排出「取用清單」(輪流=各一次;比例=依權重重複)
+  // 依主題綁定的療程排出「取用清單」:一般各 1 次;★ 加重(3 倍頻率)。同批不同篇輪替。
   function buildTreatmentPickList(topic) {
     const names = topic?.treatments || [];
+    const starred = topic?.starred || [];
     const prods = names.map((nm) => (profile.products || []).find((p) => p.name === nm)).filter(Boolean);
     if (!prods.length) return [];
-    if (topic.mix === 'weight') {
-      const list = [];
-      for (const p of prods) { const w = Math.max(1, Number(topic.weights?.[p.name]) || 1); for (let k = 0; k < w; k++) list.push(p); }
-      return list;
-    }
-    return prods;
+    const list = [];
+    for (const p of prods) { const w = starred.includes(p.name) ? 3 : 1; for (let k = 0; k < w; k++) list.push(p); }
+    return list;
   }
   // 依「要帶入哪些變數」把該療程資訊組成文字(給文案/圖片提示詞用)
   function buildTreatmentContext(topic, p) {
@@ -315,6 +313,9 @@ export default function PostPage() {
                     <button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button>
                   </div>
 
+                  {/* 綁定療程(整篇文＋圖共用) */}
+                  <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+
                   {/* 文案提示詞 */}
                   <div>
                     <label className="label text-[11px]">文案提示詞</label>
@@ -331,9 +332,6 @@ export default function PostPage() {
                     <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
                     <InsertBar treatments={treatments} vars={[]} dirs={[]} onInsert={(text) => insertToPrompt(t.id, 'imagePrompt', text)} />
                   </div>
-
-                  {/* 綁定療程:複選 + 輪流/比例 + 帶入變數 */}
-                  <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
                 </div>
               ))}
             </div>
@@ -458,61 +456,48 @@ export default function PostPage() {
   );
 }
 
-// 綁定療程:複選療程 + 輪流/指定比例 + 選擇要帶入的變數
+// 綁定療程(整篇文＋圖共用):點一下選(✓)、再點一下加重(★)、再點取消。★=強化比例(出現更頻繁)
 function TreatmentBinder({ allProducts, topic, onChange }) {
   const [open, setOpen] = useState(false);
   const sel = topic.treatments || [];
+  const starred = topic.starred || [];
   const inj = topic.inject || {};
-  const mix = topic.mix || 'rotate';
-  function toggle(name) {
-    const next = sel.includes(name) ? sel.filter((n) => n !== name) : [...sel, name];
-    onChange({ treatments: next });
+  function cycle(name) {
+    const inSel = sel.includes(name);
+    const inStar = starred.includes(name);
+    if (!inSel) onChange({ treatments: [...sel, name] });                 // 未選 → ✓
+    else if (!inStar) onChange({ starred: [...starred, name] });          // ✓ → ★(加重)
+    else onChange({ treatments: sel.filter((n) => n !== name), starred: starred.filter((n) => n !== name) }); // ★ → 取消
   }
-  function setWeight(name, v) { onChange({ weights: { ...(topic.weights || {}), [name]: Math.max(1, Number(v) || 1) } }); }
   function setInject(k, v) { onChange({ inject: { name: inj.name !== false, price: inj.price !== false, imageFocus: inj.imageFocus !== false, [k]: v } }); }
   return (
-    <div className="rounded-xl border border-sand-200 bg-sand-50/60 p-2">
+    <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-2">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between text-left text-[11px] font-medium text-sand-700">
-        <span>💉 綁定療程{sel.length ? ` (${sel.length})` : '(未綁定)'}</span>
+        <span>💉 綁定療程(整篇文＋圖共用){sel.length ? ` · ${sel.length} 個${starred.length ? `,★${starred.length}` : ''}` : '(未綁定)'}</span>
         <span className="text-sand-400">{open ? '收合 ▾' : '展開 ▸'}</span>
       </button>
       {open && (
         <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-sand-500">點一下=選用 ✓,再點一下=加重 ★(出現更頻繁),再點=取消。同批不同篇會輪替帶不同療程。</p>
           <div className="flex flex-wrap gap-1">
             {allProducts.filter((p) => p && p.name).map((p) => {
-              const on = sel.includes(p.name);
+              const on = sel.includes(p.name); const star = starred.includes(p.name);
               return (
-                <button key={p.name} type="button" onClick={() => toggle(p.name)} className={`rounded-full border px-2 py-0.5 text-[11px] ${on ? 'border-brand-400 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>
-                  {on ? '✓ ' : ''}{p.name}
+                <button key={p.name} type="button" onClick={() => cycle(p.name)}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] ${star ? 'border-gold-400 bg-gold-100 text-gold-800' : on ? 'border-brand-400 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>
+                  {star ? '★ ' : on ? '✓ ' : ''}{p.name}
                 </button>
               );
             })}
             {allProducts.length === 0 && <span className="text-[11px] text-sand-400">品牌療程庫是空的(到「品牌與療程」新增)。</span>}
           </div>
           {sel.length > 0 && (
-            <>
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-sand-600">
-                <span>取用方式:</span>
-                <label className="flex items-center gap-1"><input type="radio" checked={mix === 'rotate'} onChange={() => onChange({ mix: 'rotate' })} />輪流</label>
-                <label className="flex items-center gap-1"><input type="radio" checked={mix === 'weight'} onChange={() => onChange({ mix: 'weight' })} />指定強化比例</label>
-              </div>
-              {mix === 'weight' && (
-                <div className="flex flex-wrap gap-2">
-                  {sel.map((n) => (
-                    <span key={n} className="flex items-center gap-1 rounded-lg border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-700">
-                      {n}<input type="number" min={1} max={9} value={topic.weights?.[n] || 1} onChange={(e) => setWeight(n, e.target.value)} className="w-10 rounded border border-sand-200 px-1 text-center" />倍
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-sand-600">
-                <span>帶入變數:</span>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.name !== false} onChange={(e) => setInject('name', e.target.checked)} />療程名稱</label>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.price !== false} onChange={(e) => setInject('price', e.target.checked)} />價格優惠</label>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={inj.imageFocus !== false} onChange={(e) => setInject('imageFocus', e.target.checked)} />強化圖片方向</label>
-              </div>
-              <p className="text-[11px] text-sand-400">產文時會依上面設定,輪替把所選療程的名稱／價格／圖片方向自動帶進文案(與圖片)提示詞,同批不同篇帶不同療程。</p>
-            </>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-sand-600">
+              <span>帶入變數:</span>
+              <label className="flex items-center gap-1"><input type="checkbox" checked={inj.name !== false} onChange={(e) => setInject('name', e.target.checked)} />療程名稱</label>
+              <label className="flex items-center gap-1"><input type="checkbox" checked={inj.price !== false} onChange={(e) => setInject('price', e.target.checked)} />價格優惠</label>
+              <label className="flex items-center gap-1"><input type="checkbox" checked={inj.imageFocus !== false} onChange={(e) => setInject('imageFocus', e.target.checked)} />強化圖片方向</label>
+            </div>
           )}
         </div>
       )}

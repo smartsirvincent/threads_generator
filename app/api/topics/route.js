@@ -42,8 +42,7 @@ export async function POST(req) {
         imagePrompt: String(t.imagePrompt || '').slice(0, 2000),
         useLogo: !!t.useLogo,
         treatments: Array.isArray(t.treatments) ? t.treatments.filter(Boolean).map(String).slice(0, 30) : [],
-        mix: t.mix === 'weight' ? 'weight' : 'rotate',
-        weights: (t.weights && typeof t.weights === 'object') ? t.weights : {},
+        starred: Array.isArray(t.starred) ? t.starred.filter(Boolean).map(String).slice(0, 30) : [],
         inject: {
           name: t.inject?.name !== false,
           price: t.inject?.price !== false,
