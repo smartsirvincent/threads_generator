@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { callJSON } from '@/lib/llm.js';
 import { clinicContextText } from '@/lib/verticals.js';
+import { sanitizeText } from '@/lib/post-writer.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -46,7 +47,8 @@ const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群文案,
 - 高溫(≥34):補水保濕、避免曝曬中暑、剛做完療程避免高溫悶熱。
 - 高濕度(≥75)或有雨:悶熱易出油/悶痘、注意清潔與清爽保濕、外出攜傘。
 - 涼爽乾爽:適合安排療程、把握好天氣出遊拍照。
-規則:繁體中文、口語、有溫度;**醫療合規**(不用保證見效/永久/最便宜/第一);120-260 字,開頭有 hook,結尾軟性 CTA + 2-4 hashtag(含 #曼谷天氣 之類)。
+規則:繁體中文、口語、有溫度;醫療合規(不用保證見效/永久/最便宜/第一);120-260 字,開頭有 hook,結尾軟性 CTA + 2-4 hashtag(含 #曼谷天氣 之類)。
+格式:Threads 是純文字,禁止使用任何 markdown 符號(不要 ** 粗體、__、# 標題、> 引用、\`\`\`);要強調用文字或 emoji。
 輸出 JSON(嚴格):{"text":"完整貼文(含換行與 hashtag)"}`;
 
 export async function POST(req) {
@@ -71,7 +73,7 @@ ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
 
 請依上面的天氣寫一則「天氣提醒 + 保養/術後照護」貼文,直接回 JSON。`;
     const parsed = await callJSON({ system: SYSTEM, user, maxTokens: 1200, temperature: 0.9 });
-    let text = (parsed.text || '').trim();
+    let text = sanitizeText(parsed.text);
     if (text.length > 500) text = text.slice(0, 498) + '…';
     return NextResponse.json({ weather: wx, weatherLine: wxLine, text });
   } catch (e) {
