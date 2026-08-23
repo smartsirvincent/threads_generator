@@ -41,8 +41,18 @@ export default function PostPage() {
   const [genBusy, setGenBusy] = useState(false);
   const [genProg, setGenProg] = useState({ done: 0, total: 0 });
   const [startDate, setStartDate] = useState(todayStr());
-  const [times, setTimes] = useState('12:00,20:00');
+  const [timeSlots, setTimeSlots] = useState(['12:00', '20:00']);
+  const [qCursor, setQCursor] = useState(0); // 排程時段游標,單筆/批次送排程時往後遞延
   const [actMsg, setActMsg] = useState('');
+
+  // 預約發文(天氣)
+  const nowTime = () => { const d = new Date(); d.setHours(d.getHours() + 1); return `${String(d.getHours()).padStart(2, '0')}:00`; };
+  const [wxBusy, setWxBusy] = useState(false);
+  const [wx, setWx] = useState(null);        // {weather, weatherLine}
+  const [wxText, setWxText] = useState('');
+  const [wxDate, setWxDate] = useState(todayStr());
+  const [wxTime, setWxTime] = useState(nowTime());
+  const [wxMsg, setWxMsg] = useState('');
 
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
@@ -105,30 +115,90 @@ export default function PostPage() {
   function removeGen(id) { setGens((arr) => arr.filter((g) => g.id !== id)); }
   const kept = gens.filter((g) => g.keep && g.text.trim() && !g.text.startsWith('⚠'));
 
-  function scheduledTimes(nItems) {
-    const slots = times.split(',').map((s) => s.trim()).filter(Boolean);
+  // 時段設定
+  function updateSlot(i, v) { setTimeSlots((arr) => arr.map((s, j) => j === i ? v : s)); }
+  function addSlot() { setTimeSlots((arr) => [...arr, '18:00']); }
+  function removeSlot(i) { setTimeSlots((arr) => arr.length > 1 ? arr.filter((_, j) => j !== i) : arr); }
+
+  // 依游標往後排出 n 個時段(單筆/批次共用,避免撞在同一時間)
+  function takeSlots(n) {
+    const slots = timeSlots.filter(Boolean);
     const perDay = Math.max(slots.length, 1);
     const out = [];
-    for (let i = 0; i < nItems; i++) {
-      const day = Math.floor(i / perDay), slot = slots[i % perDay] || '12:00';
+    for (let k = 0; k < n; k++) {
+      const idx = qCursor + k, day = Math.floor(idx / perDay), slot = slots[idx % perDay] || '12:00';
       const base = new Date(`${startDate}T${slot}:00`);
       base.setDate(base.getDate() + day);
       out.push(base.getTime());
     }
+    setQCursor(qCursor + n);
     return out;
   }
+
+  const gmeta = () => ({ topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '' });
+  function badGen(g) { return !g.text.trim() || g.text.startsWith('⚠'); }
+
+  // 單筆:存入排程(meta 可覆寫;scheduledTs 可指定,否則依時段游標)
+  async function queueOne(g, meta, ts) {
+    if (badGen(g)) { setError('這則內容無效,無法排程'); return false; }
+    const when = ts || takeSlots(1)[0];
+    try {
+      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items: [{ text: g.text, ...(meta || gmeta()), scheduledTs: when }] }) });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+      if (!meta) removeGen(g.id);
+      setActMsg(`✓ 已排程 1 則(${new Date(when).toLocaleString('zh-TW')})`);
+      return true;
+    } catch (e) { setError('排程失敗:' + e.message); return false; }
+  }
+  // 單筆:立即發文(meta 可覆寫)
+  async function postOne(g, meta) {
+    if (badGen(g)) { setError('這則內容無效,無法發送'); return false; }
+    if (!confirm('確定立即發送這則到 Threads?')) return false;
+    setActMsg('發送中…');
+    try {
+      const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, ...(meta || gmeta()) }) });
+      if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+      if (!meta) removeGen(g.id);
+      setActMsg('✓ 已發送 1 則');
+      return true;
+    } catch (e) { setActMsg(''); setError('發送失敗:' + e.message); return false; }
+  }
+  // 批次:全部送排程
   async function sendToQueue() {
     if (!kept.length) { setError('沒有勾選要送的貼文'); return; }
     setActMsg('送排程中…'); setError('');
     try {
-      const ts = scheduledTimes(kept.length);
-      const items = kept.map((g, i) => ({ text: g.text, topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '', scheduledTs: ts[i] }));
+      const ts = takeSlots(kept.length);
+      const items = kept.map((g, i) => ({ text: g.text, ...gmeta(), scheduledTs: ts[i] }));
       const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setActMsg(`✓ 已送 ${d.added} 則到排程(從 ${startDate} 起,每天 ${times})— 到「🗓 排程」查看`);
+      setActMsg(`✓ 已送 ${d.added} 則到排程 — 到「🗓 排程」查看`);
       setGens((arr) => arr.filter((g) => !g.keep));
     } catch (e) { setActMsg(''); setError('送排程失敗:' + e.message); }
   }
+  // ---- 預約發文(天氣) ----
+  const WX_META = { topicId: '', topicName: '曼谷天氣提醒', type: 'text' };
+  async function genWeatherPost() {
+    setWxBusy(true); setWxMsg('抓曼谷天氣＋產文中…'); setError('');
+    try {
+      const r = await fetch('/api/post/weather', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...ctx, clinic }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWx({ weather: d.weather, weatherLine: d.weatherLine }); setWxText(d.text || ''); setWxMsg('');
+    } catch (e) { setWxMsg(''); setError('天氣產文失敗:' + e.message); } finally { setWxBusy(false); }
+  }
+  async function postWeatherNow() {
+    const ok = await postOne({ id: 'wx', text: wxText }, WX_META);
+    if (ok) { setWxText(''); setWx(null); }
+  }
+  async function queueWeather() {
+    if (!wxText.trim()) { setError('沒有可預約的內容'); return; }
+    const ts = new Date(`${wxDate}T${wxTime}:00`).getTime();
+    if (!ts || ts < Date.now()) { setError('預約時間需晚於現在'); return; }
+    const ok = await queueOne({ id: 'wx', text: wxText }, WX_META, ts);
+    if (ok) { setWxText(''); setWx(null); setWxMsg('✓ 已預約,到「🗓 排程」查看'); }
+  }
+
+  // 批次:全部立即發
   async function postAllNow() {
     if (!kept.length) { setError('沒有勾選要發的貼文'); return; }
     if (!confirm(`確定立即發送 ${kept.length} 則到 Threads?`)) return;
@@ -136,7 +206,7 @@ export default function PostPage() {
     let ok = 0;
     for (const g of kept) {
       try {
-        const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '' }) });
+        const r = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: g.text, ...gmeta() }) });
         if (r.ok) { ok++; removeGen(g.id); }
       } catch (_) {}
       setActMsg(`發送中… ${ok}/${kept.length}`);
@@ -148,9 +218,9 @@ export default function PostPage() {
     <main className="space-y-6">
       <div className="card border-brand-200 bg-brand-50/40">
         <h1 className="font-display text-2xl font-semibold text-sand-900">🧵 內容 / 發文</h1>
-        <p className="mt-2 text-sm text-sand-600">主題庫 → 依主題批次產文(最多 100 則)→ 勾選送排程或立即發。品牌／療程自動帶入(在「品牌與療程」維護)。排程與連線各自獨立成頁。</p>
+        <p className="mt-2 text-sm text-sand-600">建立主題 → 依主題產文(最多 100 則)→ 每則可立即發、存排程或刪除。品牌／療程自動帶入(在「品牌與療程」維護)。排程與連線各自獨立成頁。</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {[['library', '🗂 主題庫'], ['produce', '✍️ 批次產文']].map(([k, l]) => (
+          {[['library', '🗂 建立主題'], ['produce', '✍️ 主題產文'], ['weather', '🌤 預約發文']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setTab(k)} className={`rounded-full px-4 py-1.5 text-sm ${tab === k ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>{l}</button>
           ))}
           <a href="/schedule" className="ml-auto rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">🗓 排程</a>
@@ -203,8 +273,8 @@ export default function PostPage() {
 
       {tab === 'produce' && (
         <div className="card space-y-3">
-          <h2 className="font-display text-sm font-semibold text-sand-800">依主題批次產文</h2>
-          {topics.length === 0 ? <p className="text-xs text-sand-400">主題庫是空的,請先到「🗂 主題庫」新增並存檔。</p> : (
+          <h2 className="font-display text-sm font-semibold text-sand-800">依主題產文</h2>
+          {topics.length === 0 ? <p className="text-xs text-sand-400">還沒有主題,請先到「🗂 建立主題」新增並存檔。</p> : (
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
@@ -230,28 +300,85 @@ export default function PostPage() {
                       <div key={g.id} className={`rounded-2xl border p-3 ${g.keep ? 'border-brand-300 bg-brand-50/40' : 'border-sand-200 opacity-70'}`}>
                         <div className="mb-1 flex items-center justify-between">
                           <label className="flex items-center gap-2 text-xs text-sand-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-sand-300 text-brand-600" />第 {i + 1} 則 <span className={g.text.length > 500 ? 'text-red-600' : 'text-sand-400'}>({g.text.length}/500)</span></label>
-                          <button type="button" onClick={() => removeGen(g.id)} className="rounded-lg px-2 py-0.5 text-xs text-red-600 hover:bg-red-50">刪除</button>
                         </div>
                         <textarea className="input min-h-[90px] text-sm" value={g.text} onChange={(e) => updateGen(g.id, { text: e.target.value })} />
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={() => postOne(g)} disabled={badGen(g)} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
+                          <button type="button" onClick={() => queueOne(g)} disabled={badGen(g)} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 存入排程</button>
+                          <button type="button" onClick={() => removeGen(g.id)} className="rounded-lg border border-sand-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">🗑 刪除</button>
+                        </div>
                       </div>
                     ))}
                   </div>
 
-                  {/* 排程設定 + 動作 */}
-                  <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-2">
-                    <div className="flex flex-wrap items-end gap-3">
+                  {/* 排程設定(時段用挑的,不用填) + 批次動作 */}
+                  <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
+                    <div className="flex flex-wrap items-end gap-4">
                       <div><label className="label text-xs">起始日期</label><input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
-                      <div className="flex-1 min-w-[160px]"><label className="label text-xs">每天發文時段(逗號分隔,幾個=每天幾則)</label><input className="input text-sm" value={times} onChange={(e) => setTimes(e.target.value)} placeholder="12:00,20:00" /></div>
+                      <div className="flex-1 min-w-[220px]">
+                        <label className="label text-xs">每天發文時段(挑選,幾個=每天幾則)</label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {timeSlots.map((s, i) => (
+                            <span key={i} className="flex items-center gap-1 rounded-xl border border-sand-200 bg-white pl-2 pr-1 py-1">
+                              <input type="time" value={s} onChange={(e) => updateSlot(i, e.target.value)} className="bg-transparent text-sm text-sand-800 outline-none" />
+                              {timeSlots.length > 1 && <button type="button" onClick={() => removeSlot(i)} className="rounded px-1 text-xs text-sand-400 hover:text-red-600">✕</button>}
+                            </span>
+                          ))}
+                          <button type="button" onClick={addSlot} className="rounded-xl border border-dashed border-brand-300 px-2.5 py-1 text-xs text-brand-600 hover:bg-brand-50">＋ 加時段</button>
+                        </div>
+                      </div>
                     </div>
+                    <p className="text-[11px] text-sand-400">批次動作依「已勾選」的則數,從起始日期起、每天照上面時段依序排入。單則也可用各則自己的按鈕處理。</p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 送到排程({kept.length})</button>
-                      <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 立即發送所選</button>
+                      <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
+                      <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 已勾選立即發</button>
                       {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
                     </div>
                   </div>
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {tab === 'weather' && (
+        <div className="card space-y-3">
+          <h2 className="font-display text-sm font-semibold text-sand-800">🌤 預約發文 · 曼谷天氣提醒</h2>
+          <p className="text-xs text-sand-500">串接曼谷當天天氣(氣溫／濕度／紫外線／降雨),自動產出「注意事項＋保養／術後照護」貼文。可立即發或預約時間發。</p>
+          <button type="button" onClick={genWeatherPost} disabled={wxBusy} className="btn-primary text-sm disabled:opacity-50">{wxBusy ? '產生中…' : '🌤 抓天氣並產文'}</button>
+          {wxMsg && <p className="text-xs text-emerald-700">{wxMsg}</p>}
+
+          {wx?.weather && (
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-brand-200 bg-brand-50/40 p-3 text-xs text-sand-700">
+              <span className="font-medium text-brand-700">曼谷今日</span>
+              <span>{wx.weather.desc}</span>
+              {wx.weather.tempMin != null && <span>🌡 {wx.weather.tempMin}–{wx.weather.tempMax}°C</span>}
+              {wx.weather.humidity != null && <span>💧 濕度 {wx.weather.humidity}%</span>}
+              {wx.weather.uvMax != null && <span>☀️ UV {wx.weather.uvMax}</span>}
+              {wx.weather.precipProb != null && <span>🌧 降雨 {wx.weather.precipProb}%</span>}
+            </div>
+          )}
+
+          {wxText && (
+            <div className="space-y-3 border-t border-sand-200 pt-3">
+              <div>
+                <label className="label text-xs">貼文內容 <span className={wxText.length > 500 ? 'text-red-600' : 'text-sand-400'}>({wxText.length}/500)</span></label>
+                <textarea className="input min-h-[120px] text-sm" value={wxText} onChange={(e) => setWxText(e.target.value)} />
+              </div>
+              <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div><label className="label text-xs">預約日期</label><input type="date" className="input text-sm" value={wxDate} onChange={(e) => setWxDate(e.target.value)} /></div>
+                  <div><label className="label text-xs">預約時間</label><input type="time" className="input text-sm" value={wxTime} onChange={(e) => setWxTime(e.target.value)} /></div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={postWeatherNow} disabled={!wxText.trim()} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
+                  <button type="button" onClick={queueWeather} disabled={!wxText.trim()} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 預約發文</button>
+                  <button type="button" onClick={() => { setWxText(''); setWx(null); }} className="rounded-lg border border-sand-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">🗑 刪除</button>
+                  {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}
