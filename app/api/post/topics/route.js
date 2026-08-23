@@ -24,8 +24,9 @@ const SYSTEM = `你是醫美診所「泰國醫美 Best Friend」的社群內容�
 輸出 JSON(嚴格):{"topics":[{"name":"主題(≤10字)","prompt":"依上述固定格式的彈性 brief(核心訊息+至少5個可選切角+可帶素材+語氣),100-180字,不含任何固定開場/結尾句"}]}`;
 
 // 純泰國文化/旅遊:完全不談產品、品牌、療程、促銷
-const CULTURE_SYSTEM = `你是經營一個「曼谷在地生活/旅遊」風格 Threads 帳號的內容策略師,口吻像親暱真誠的閨蜜。
-請發想「純泰國文化 / 旅遊」主題,**完全不談任何產品、品牌、醫美療程、診所、促銷或優惠**,就是單純介紹泰國的文化、生活、旅遊、美食、節慶、景點、交通、購物、語言、禮俗、小知識、旅遊撇步等,讓讀者覺得有趣、實用、想收藏或分享。
+const CULTURE_SYSTEM = `你是經營一個「泰國文化/旅遊」風格 Threads 帳號的內容策略師,口吻像親暱真誠的閨蜜。
+請發想「純泰國文化 / 旅遊」主題。**主題範圍只能是**:美食小吃、寺廟古蹟、交通(BTS/計程車/嘟嘟車)、節慶(潑水節/水燈節)、語言泰文、禮俗禁忌、購物市集、按摩SPA文化、咖啡廳、自然景點海島、歷史、生活觀察、旅遊撇步等。
+**絕對禁止**:任何跟美容、保養、變美、醫美、皮膚、素顏、抗老、療程、診所、產品、品牌、促銷、優惠有關的主題或字眼——連「順便變美」「醫美行程」這類都不行。主題要能讓「對泰國有興趣但不見得想變美」的人也想看。
 提示詞寫法(關鍵):同一主題會產很多篇,提示詞要寫成有彈性的 brief,用固定格式:
 「核心訊息:(一句話)。可選切角(每篇挑一個深入,不要全用):①… ②… ③… ④… ⑤…(至少5個具體、彼此不同的角度/故事點)。語氣:…。」
 硬性規定:不准寫固定開場白、不准指定範例開場句、不准規定固定條列點數、不准指定固定結尾句;不得出現任何產品/品牌/療程/優惠字眼。主題名稱≤10字。
@@ -51,7 +52,7 @@ ${keyword ? `**參考關鍵字/方向**: ${keyword}` : ''}
 ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
 
 請發想 ${n} 個「${t}」型別的主題,每個附提示詞。直接回 JSON。`;
-    const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 2000, temperature: 0.95 });
+    const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 2000, temperature: culture ? 0.85 : 0.95 });
     const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
       .filter((x) => x && x.name)
       .map((x) => ({ type: t, name: String(x.name).replace(/\s+/g, '').slice(0, 10), prompt: String(x.prompt || '').slice(0, 500), culture: !!culture }));
