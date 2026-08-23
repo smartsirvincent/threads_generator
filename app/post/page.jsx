@@ -1,6 +1,6 @@
 'use client';
 
-// 內容流程:主題庫(3型別+提示詞+存檔) → 依主題批次產文(≤100)→ 勾選送排程/立即發 → 排程自動發到 Threads
+// 內容 / 發文:主題庫(3型別+提示詞+存檔) → 依主題批次產文(≤100)→ 勾選送排程 / 立即發。排程與連線各自獨立成頁。
 import { useEffect, useState } from 'react';
 import { medicalClinicProfile, CANONICAL_PROFILE_NAME } from '@/lib/verticals.js';
 import { loadCanonicalProfile } from '@/lib/profile-store.js';
@@ -44,77 +44,11 @@ export default function PostPage() {
   const [times, setTimes] = useState('12:00,20:00');
   const [actMsg, setActMsg] = useState('');
 
-  // queue
-  const [qItems, setQItems] = useState([]);
-  const [qBusy, setQBusy] = useState(false);
-  const [qMsg, setQMsg] = useState('');
-  // 更新未發價格
-  const [priceReview, setPriceReview] = useState(null); // null=未查; []=無需更新
-  const [pricePick, setPricePick] = useState(new Set());
-  const [priceMsg, setPriceMsg] = useState('');
-  // 每日自動產文
-  const [dailyAuto, setDailyAuto] = useState(null);
-  // Threads 連線設定
-  const [auth, setAuth] = useState(null);        // 狀態物件
-  const [authUserId, setAuthUserId] = useState('');
-  const [authToken, setAuthToken] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authMsg, setAuthMsg] = useState('');
-
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
     (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setThreadsConfigured(!!d.configured); } catch (_) { setThreadsConfigured(false); } })();
-    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); } catch (_) { setDailyAuto(false); } })();
   }, []);
-
-  async function toggleDailyAuto(v) {
-    setDailyAuto(v);
-    try { await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dailyAuto: v }) }); }
-    catch (_) { setDailyAuto(!v); }
-  }
-
-  async function loadAuth() {
-    try { const r = await fetch('/api/threads/auth', { cache: 'no-store' }); const d = await r.json(); setAuth(d); setThreadsConfigured(!!d.configured); if (d.userId) setAuthUserId(d.userId); }
-    catch (_) { setAuth({ configured: false }); }
-  }
-  async function saveAuth() {
-    if (!authUserId.trim() || !authToken.trim()) { setAuthMsg('請填 User ID 與 Access Token'); return; }
-    setAuthBusy(true); setAuthMsg('驗證並儲存中…');
-    try {
-      const r = await fetch('/api/threads/auth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'save', userId: authUserId.trim(), accessToken: authToken.trim() }) });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || '儲存失敗');
-      setAuth(d.status); setThreadsConfigured(!!d.status?.configured); setAuthToken('');
-      setAuthMsg(`✓ 已連接${d.username ? ' @' + d.username : ''}`);
-    } catch (e) { setAuthMsg('✗ ' + e.message); } finally { setAuthBusy(false); }
-  }
-  async function refreshAuth() {
-    setAuthBusy(true); setAuthMsg('續期中…');
-    try {
-      const r = await fetch('/api/threads/auth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refresh' }) });
-      const d = await r.json();
-      if (d.status) { setAuth(d.status); setThreadsConfigured(!!d.status.configured); }
-      setAuthMsg(d.refreshed ? `✓ 已續期,效期重設為約 ${d.newDaysLeft} 天` : `未續期:${d.error || d.reason || ''}`);
-    } catch (e) { setAuthMsg('✗ ' + e.message); } finally { setAuthBusy(false); }
-  }
-  async function clearAuth() {
-    if (!confirm('確定解除 Threads 連線?解除後將無法自動發文。')) return;
-    setAuthBusy(true); setAuthMsg('解除中…');
-    try {
-      const r = await fetch('/api/threads/auth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'clear' }) });
-      const d = await r.json();
-      if (d.status) { setAuth(d.status); setThreadsConfigured(!!d.status.configured); }
-      setAuthMsg('已解除連線');
-    } catch (e) { setAuthMsg('✗ ' + e.message); } finally { setAuthBusy(false); }
-  }
-
-  async function loadQueue() {
-    setQBusy(true);
-    try { const r = await fetch('/api/queue', { cache: 'no-store' }); const d = await r.json(); setQItems(d.items || []); }
-    catch (e) { setError(e.message); } finally { setQBusy(false); }
-  }
-  useEffect(() => { if (tab === 'queue') { loadQueue(); loadAuth(); } }, [tab]);
 
   // ---- 主題庫 ----
   async function brainstorm() {
@@ -191,7 +125,7 @@ export default function PostPage() {
       const items = kept.map((g, i) => ({ text: g.text, topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '', scheduledTs: ts[i] }));
       const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setActMsg(`✓ 已送 ${d.added} 則到排程(從 ${startDate} 起,每天 ${times})`);
+      setActMsg(`✓ 已送 ${d.added} 則到排程(從 ${startDate} 起,每天 ${times})— 到「🗓 排程」查看`);
       setGens((arr) => arr.filter((g) => !g.keep));
     } catch (e) { setActMsg(''); setError('送排程失敗:' + e.message); }
   }
@@ -210,47 +144,19 @@ export default function PostPage() {
     setActMsg(`✓ 已發 ${ok} 則`);
   }
 
-  // ---- 排程 ----
-  async function removeQ(id) { await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'remove', id }) }); loadQueue(); }
-  async function clearPosted() { await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'clearPosted' }) }); loadQueue(); }
-  async function runDue() {
-    setQMsg('檢查發送中…');
-    try { const r = await fetch('/api/cron/post-due', { method: 'POST' }); const d = await r.json(); setQMsg(d.error ? '⚠ ' + d.error : `✓ 發了 ${d.posted || 0} 則,待發 ${d.remaining ?? '?'}`); loadQueue(); }
-    catch (e) { setQMsg('⚠ ' + e.message); }
-  }
-  async function reviewPrices() {
-    setPriceMsg('比對中…'); setPriceReview(null);
-    try {
-      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'refreshPreview' }) });
-      const d = await r.json();
-      setPriceReview(d.items || []);
-      setPricePick(new Set((d.items || []).map((x) => x.id)));
-      setPriceMsg(d.items?.length ? `找到 ${d.items.length} 則待發貼文含舊價,可更新` : (d.changesCount ? '沒有待發貼文需要更新' : '目前沒有價格異動紀錄(改價存檔後才會有)'));
-    } catch (e) { setPriceMsg('⚠ ' + e.message); }
-  }
-  async function applyPrices() {
-    const ids = [...pricePick];
-    if (!ids.length) { setPriceMsg('沒有勾選'); return; }
-    setPriceMsg('更新中…');
-    try {
-      const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'applyPrices', ids }) });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error);
-      setPriceMsg(`✓ 已更新 ${d.updated} 則的價格`); setPriceReview(null); loadQueue();
-    } catch (e) { setPriceMsg('⚠ ' + e.message); }
-  }
-
   return (
     <main className="space-y-6">
       <div className="card border-brand-200 bg-brand-50/40">
         <h1 className="font-display text-2xl font-semibold text-sand-900">🧵 內容 / 發文</h1>
-        <p className="mt-2 text-sm text-sand-600">主題庫 → 依主題批次產文(最多 100 則)→ 勾選送排程或立即發 → 排程到點自動發 Threads。品牌/療程自動帶入(在「品牌資訊」維護)。</p>
+        <p className="mt-2 text-sm text-sand-600">主題庫 → 依主題批次產文(最多 100 則)→ 勾選送排程或立即發。品牌／療程自動帶入(在「品牌與療程」維護)。排程與連線各自獨立成頁。</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {[['library', '🗂 主題庫'], ['produce', '✍️ 批次產文'], ['queue', '🗓 排程']].map(([k, l]) => (
+          {[['library', '🗂 主題庫'], ['produce', '✍️ 批次產文']].map(([k, l]) => (
             <button key={k} type="button" onClick={() => setTab(k)} className={`rounded-full px-4 py-1.5 text-sm ${tab === k ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>{l}</button>
           ))}
-          <a href="/analytics" className="ml-auto rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">📊 成效分析</a>
+          <a href="/schedule" className="ml-auto rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">🗓 排程</a>
+          <a href="/analytics" className="rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">📊 成效分析</a>
         </div>
-        <p className="mt-2 text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接(可先產文＋複製;設 token 後可排程自動發)</span>}</p>
+        <p className="mt-2 text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設好 token 才能排程自動發(可先產文＋複製)</span>}</p>
       </div>
 
       {tab === 'library' && (
@@ -347,107 +253,6 @@ export default function PostPage() {
               )}
             </>
           )}
-        </div>
-      )}
-
-      {tab === 'queue' && (
-        <div className="space-y-5">
-        {/* Threads 連線設定(可在網站內設 token,60 天效期由 cron 自動續期) */}
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-sm font-semibold text-sand-800">🧵 Threads 連線</h2>
-            {auth?.configured
-              ? <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">已連接{auth.username ? ' @' + auth.username : ''}</span>
-              : <span className="rounded-full bg-gold-50 px-2.5 py-0.5 text-xs font-medium text-gold-700">未連接</span>}
-          </div>
-          {auth?.configured && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-sand-500">
-              {auth.userId ? <span>User ID:<span className="text-sand-700">{auth.userId}</span></span> : null}
-              {auth.source === 'env' ? <span className="text-gold-600">來源:環境變數(建議改用下方表單存雲端,才能自動續期)</span> : null}
-              {(auth.daysLeft !== null && auth.daysLeft !== undefined) ? <span className={auth.daysLeft <= 10 ? 'font-medium text-red-600' : 'text-sand-600'}>效期剩 {auth.daysLeft} 天{auth.daysLeft <= 10 ? '(即將自動續期)' : ''}</span> : null}
-              {auth.lastRefreshTs ? <span>上次續期:{new Date(auth.lastRefreshTs).toLocaleDateString('zh-TW')}</span> : null}
-              {auth.source === 'cloud' ? (auth.encrypted ? <span className="text-emerald-600">🔒 已加密</span> : <span className="text-gold-600">未加密(建議在 Vercel 設 TOKEN_SECRET)</span>) : null}
-              {auth.refreshError ? <span className="text-red-600">續期錯誤:{auth.refreshError}</span> : null}
-            </div>
-          )}
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div>
-              <label className="label">Threads User ID（數字）</label>
-              <input className="input" value={authUserId} onChange={(e) => setAuthUserId(e.target.value)} placeholder="例:17841400000000000" />
-            </div>
-            <div>
-              <label className="label">Access Token（長效）</label>
-              <input className="input" type="password" value={authToken} onChange={(e) => setAuthToken(e.target.value)} placeholder="貼上長效 access token" />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={saveAuth} disabled={authBusy} className="btn-primary text-sm disabled:opacity-50">💾 驗證並儲存</button>
-            {auth?.configured && auth?.source === 'cloud' ? <button type="button" onClick={refreshAuth} disabled={authBusy} className="btn-secondary text-sm">🔄 立即續期</button> : null}
-            {auth?.configured && auth?.source === 'cloud' ? <button type="button" onClick={clearAuth} disabled={authBusy} className="btn-secondary text-sm !text-red-600">解除連線</button> : null}
-            {authMsg && <span className="text-xs text-sand-600">{authMsg}</span>}
-          </div>
-          <p className="text-[11px] leading-relaxed text-sand-400">貼上 <strong>@bestfriend.clinic</strong> 的長效 token 存到雲端後，系統會在效期剩 10 天內自動續期（需外部 cron 每小時打 <code>/api/cron/tick</code>），不必再進 Vercel 改設定。Token 只會加密存放，不會顯示原文。</p>
-        </div>
-
-        <div className="card space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-sm font-semibold text-sand-800">排程佇列 <span className="font-normal text-sand-500">({qItems.length})</span></h2>
-            <div className="flex flex-wrap items-center gap-2">
-              {qMsg && <span className="text-xs text-emerald-700">{qMsg}</span>}
-              <button type="button" onClick={reviewPrices} className="btn-gold text-xs">🔄 更新未發價格</button>
-              <button type="button" onClick={runDue} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">▶ 立即檢查發送</button>
-              <button type="button" onClick={clearPosted} className="btn-secondary text-xs">🧹 清除已發</button>
-              <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-xl border border-sand-200 bg-white px-2 py-1.5 text-xs text-sand-500 hover:bg-brand-50">↻</button>
-            </div>
-          </div>
-          <p className="text-[11px] text-sand-400">到期貼文由外部 cron 每小時打 <code>/api/cron/tick</code> 自動發;也可按「立即檢查發送」手動觸發。改完價格後,用「更新未發價格」把待發貼文的舊價換成新價。</p>
-
-          {/* 每日自動產文開關 */}
-          <label className="flex items-center gap-2 rounded-2xl border border-brand-200 bg-brand-50/50 px-3 py-2 text-sm text-sand-700">
-            <input type="checkbox" checked={!!dailyAuto} disabled={dailyAuto === null} onChange={(e) => toggleDailyAuto(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
-            🤖 每日自動產 1 篇（依近期成效最佳的主題自動產文並排入佇列）
-            <span className="text-[11px] text-sand-400">{dailyAuto === null ? '' : dailyAuto ? '已開啟' : '關閉'}</span>
-          </label>
-
-          {priceReview !== null && (
-            <div className="rounded-2xl border border-gold-200 bg-gold-50/50 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gold-700">待更新價格的貼文 ({priceReview.length})</span>
-                {priceMsg && <span className="text-xs text-gold-700">{priceMsg}</span>}
-              </div>
-              {priceReview.length > 0 && (
-                <>
-                  {priceReview.map((p) => (
-                    <label key={p.id} className="flex items-start gap-2 rounded-xl border border-gold-200 bg-white p-2 text-xs">
-                      <input type="checkbox" checked={pricePick.has(p.id)} onChange={(e) => setPricePick((s) => { const n = new Set(s); e.target.checked ? n.add(p.id) : n.delete(p.id); return n; })} className="mt-0.5 size-4 rounded border-sand-300 text-gold-600" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sand-500">{p.topicName || '—'} · {new Date(p.scheduledTs).toLocaleString('zh-TW')}</div>
-                        {(p.applied || []).map((c, i) => <div key={i} className="text-gold-700">價格:<span className="line-through">{c.from}</span> → <strong>{c.to}</strong></div>)}
-                      </div>
-                    </label>
-                  ))}
-                  <button type="button" onClick={applyPrices} className="btn-gold text-xs">套用所選 ({pricePick.size})</button>
-                </>
-              )}
-            </div>
-          )}
-          {qItems.length === 0 ? <p className="text-xs text-sand-400">佇列是空的。到「✍️ 批次產文」勾選後按「送到排程」。</p> : (
-            <div className="space-y-1.5">
-              {qItems.map((it) => (
-                <div key={it.id} className="flex items-start gap-2 rounded-2xl border border-sand-200 p-3 text-xs">
-                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 ${it.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : it.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gold-100 text-gold-700'}`}>{it.status === 'posted' ? '已發' : it.status === 'failed' ? '失敗' : '待發'}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sand-500">{new Date(it.scheduledTs).toLocaleString('zh-TW')} · {it.topicName || '—'}</div>
-                    <div className="truncate text-sand-800">{it.text}</div>
-                    {it.status === 'posted' && it.permalink && <a href={it.permalink} target="_blank" rel="noreferrer" className="text-brand-600 underline">看貼文 ↗</a>}
-                    {it.status === 'failed' && <span className="text-red-600">{it.error}</span>}
-                  </div>
-                  <button type="button" onClick={() => removeQ(it.id)} className="shrink-0 rounded-lg px-1.5 py-0.5 text-red-600 hover:bg-red-50">🗑</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
         </div>
       )}
 

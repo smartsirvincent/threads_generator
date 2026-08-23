@@ -6,8 +6,10 @@ import { usePathname } from 'next/navigation';
 const LINKS = [
   { href: '/brand', icon: '🏷', label: '品牌與療程' },
   { href: '/post', icon: '🧵', label: '內容發文' },
-  { href: '/material', icon: '🖼', label: '廣告圖片生成' },
+  { href: '/material', icon: '🖼', label: '廣告圖片' },
+  { href: '/schedule', icon: '🗓', label: '排程' },
   { href: '/analytics', icon: '📊', label: '成效分析' },
+  { href: '/settings', icon: '⚙️', label: '連線設定' },
 ];
 
 export default function Nav() {
