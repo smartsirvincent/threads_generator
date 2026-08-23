@@ -330,7 +330,6 @@ export default function PostPage() {
                       <label className="flex items-center gap-1 text-[11px] text-sand-600"><input type="checkbox" checked={!!t.useLogo} onChange={(e) => updateTopic(t.id, { useLogo: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🅛 圖片帶 LOGO</label>
                     </div>
                     <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
-                    <InsertBar treatments={treatments} vars={[]} dirs={[]} onInsert={(text) => insertToPrompt(t.id, 'imagePrompt', text)} />
                   </div>
                 </div>
               ))}
