@@ -43,6 +43,7 @@ export default function PostPage() {
 
   // produce
   const [selId, setSelId] = useState('');
+  const [genImages, setGenImages] = useState(false); // 產文時一併產圖
   const [count, setCount] = useState(5);
   const [gens, setGens] = useState([]); // [{id,text,keep}]
   const [genBusy, setGenBusy] = useState(false);
@@ -173,10 +174,10 @@ export default function PostPage() {
           const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
-          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: selected.type === 'image' && r.ok, imgErr: '' };
+          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: genImages && r.ok, imgErr: '' };
           done++; setGenProg({ done, total: n }); setGens(results.filter(Boolean));
-          // 圖片型主題:先產文(上面)→ 再依文案內容產圖
-          if (selected.type === 'image' && r.ok && text && !text.startsWith('⚠')) {
+          // 產文時一併產圖:先產文(上面)→ 再依文案內容產圖
+          if (genImages && r.ok && text && !text.startsWith('⚠')) {
             try {
               const url = await genImageForPost({ topic: selected, caption: text, treatment: tp });
               results[i] = { ...results[i], imageUrl: url, imgBusy: false };
@@ -393,7 +394,7 @@ export default function PostPage() {
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
-                  <select className="input text-sm" value={selId} onChange={(e) => { setSelId(e.target.value); setGens([]); }}>
+                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(t?.type === 'image'); }}>
                     <option value="">選一個主題…</option>
                     {TYPES.map((ty) => { const g = topics.filter((t) => t.type === ty.key && t.enabled !== false); return g.length ? <optgroup key={ty.key} label={`${ty.emoji} ${ty.label}`}>{g.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null; })}
                   </select>
@@ -401,6 +402,11 @@ export default function PostPage() {
                 <div><label className="label text-xs">產幾則(≤100)</label><input type="number" min={1} max={100} className="input w-24 text-sm" value={count} onChange={(e) => setCount(e.target.value)} /></div>
                 <button type="button" onClick={generateBatch} disabled={genBusy || !selected} className="btn-primary text-sm disabled:opacity-50">{genBusy ? `產文中 ${genProg.done}/${genProg.total}` : '✍️ 批次產文'}</button>
               </div>
+              <label className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/50 px-3 py-2 text-sm text-sand-700">
+                <input type="checkbox" checked={genImages} onChange={(e) => setGenImages(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
+                🖼 產文時一併產圖(依文案內容,產完就有圖,不必等發文時才產)
+                {brandLogo ? <span className="text-[11px] text-sand-400">· 主題勾 LOGO 會自動蓋上</span> : <span className="text-[11px] text-gold-600">· 未設 LOGO(到「品牌與療程」填)</span>}
+              </label>
               {selected && <p className="text-[11px] text-sand-500">提示詞:{selected.prompt || '(無)'}</p>}
 
               {gens.length > 0 && (
