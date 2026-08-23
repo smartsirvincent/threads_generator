@@ -38,6 +38,16 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const action = body.action || 'save';
   try {
+    if (action === 'test') {
+      const c = await getThreadsCreds();
+      if (!c.ok) return NextResponse.json({ ok: false, error: '尚未設定 Threads 連線' }, { status: 400 });
+      try {
+        const info = await validateThreadsToken(c.token);
+        return NextResponse.json({ ok: true, username: info.username, id: info.id, source: c.source });
+      } catch (e) {
+        return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
+      }
+    }
     if (action === 'refresh') {
       const r = await maybeRefreshThreadsToken({ force: true });
       return NextResponse.json({ ...r, status: await status() });

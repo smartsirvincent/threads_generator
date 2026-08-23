@@ -27,6 +27,14 @@ export default function SettingsPage() {
       setAuthMsg(`✓ 已連接${d.username ? ' @' + d.username : ''}`);
     } catch (e) { setAuthMsg('✗ ' + e.message); } finally { setAuthBusy(false); }
   }
+  async function testAuth() {
+    setAuthBusy(true); setAuthMsg('測試連線中…');
+    try {
+      const r = await fetch('/api/threads/auth', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'test' }) });
+      const d = await r.json();
+      setAuthMsg(d.ok ? `✓ 連線正常 — 已連到 @${d.username || '?'}` : `✗ 連線失敗:${d.error || '未知錯誤'}`);
+    } catch (e) { setAuthMsg('✗ ' + e.message); } finally { setAuthBusy(false); }
+  }
   async function refreshAuth() {
     setAuthBusy(true); setAuthMsg('續期中…');
     try {
@@ -83,6 +91,7 @@ export default function SettingsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={saveAuth} disabled={authBusy} className="btn-primary text-sm disabled:opacity-50">💾 驗證並儲存</button>
+          {auth?.configured ? <button type="button" onClick={testAuth} disabled={authBusy} className="btn-secondary text-sm">🔌 測試連線</button> : null}
           {auth?.configured && auth?.source === 'cloud' ? <button type="button" onClick={refreshAuth} disabled={authBusy} className="btn-secondary text-sm">🔄 立即續期</button> : null}
           {auth?.configured && auth?.source === 'cloud' ? <button type="button" onClick={clearAuth} disabled={authBusy} className="btn-secondary text-sm !text-red-600">解除連線</button> : null}
           {authMsg && <span className="text-xs text-sand-600">{authMsg}</span>}
