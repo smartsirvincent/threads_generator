@@ -31,6 +31,14 @@ export default function AnalyticsPage() {
     const f = dstr(Date.now() - days * DAY), t = dstr(Date.now());
     setFrom(f); setTo(t); load(f, t);
   }
+  function quickYesterday() {
+    const y = dstr(Date.now() - DAY);
+    setFrom(y); setTo(y); load(y, y);
+  }
+  function quickToday() {
+    const d = dstr(Date.now());
+    setFrom(d); setTo(d); load(d, d);
+  }
 
   const hasInsights = data?.hasInsights;
   const t = data?.totals;
@@ -45,6 +53,8 @@ export default function AnalyticsPage() {
       <div className="card border-brand-200 bg-brand-50/50">
         <h1 className="font-display text-2xl font-semibold text-sand-900">📊 成效分析</h1>
         <div className="mt-3 flex flex-wrap items-end gap-3">
+          <button type="button" onClick={quickToday} className="rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-sm text-sand-600 shadow-soft hover:bg-sand-50">今日</button>
+          <button type="button" onClick={quickYesterday} className="rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-sm text-sand-600 shadow-soft hover:bg-sand-50">昨日</button>
           <button type="button" onClick={() => quick(7)} className="rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-sm text-sand-600 shadow-soft hover:bg-sand-50">近 7 天</button>
           <button type="button" onClick={() => quick(30)} className="rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-sm text-sand-600 shadow-soft hover:bg-sand-50">近 30 天</button>
           <div><label className="label text-xs">起</label><input type="date" className="input text-sm" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
@@ -88,6 +98,34 @@ export default function AnalyticsPage() {
                     <div className="text-sand-500">{p.topicName} · {({ text: '純文字', long: '長文', image: '圖片' })[p.type] || p.type} · {new Date(p.ts).toLocaleDateString('zh-TW')}{p.permalink && <> · <a href={p.permalink} target="_blank" rel="noreferrer" className="text-brand-600 underline">看貼文↗</a></>}</div>
                   </div>
                   <div className="shrink-0 text-right text-sand-600">👁{p.views.toLocaleString()}<br />❤{p.likes} 🔁{p.reposts} 💬{p.replies}</div>
+                </div>
+              ))}
+            </div>
+          )}
+      </Section>
+
+      {/* 發文記錄 */}
+      <Section title="發文記錄" action={<span className="text-[11px] text-sand-400">期間內全部貼文 · 新到舊{data?.coversAll ? '(含非本系統發的)' : ''}</span>}>
+        {(!data?.records || data.records.length === 0)
+          ? <p className="text-sm text-sand-400">此期間沒有發文記錄。</p>
+          : (
+            <div className="space-y-1.5">
+              {data.records.map((p, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-xl border border-sand-200 p-2 text-xs hover:bg-sand-50">
+                  <span className="mt-0.5 shrink-0 rounded-full bg-gold-100 px-2 py-0.5 text-[11px] text-gold-700">{p.typeLabel}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sand-800">{p.textPreview || '(無預覽)'}</div>
+                    <div className="text-sand-500">
+                      {new Date(p.ts).toLocaleString('zh-TW')} · {p.topicName}
+                      {!p.fromSystem && <span className="ml-1 text-sand-400">(非本系統)</span>}
+                      {p.permalink && <> · <a href={p.permalink} target="_blank" rel="noreferrer" className="text-brand-600 underline">看貼文↗</a></>}
+                    </div>
+                  </div>
+                  {hasInsights && (
+                    <div className="shrink-0 text-right text-sand-600">
+                      {p.views != null ? <>👁{p.views.toLocaleString()}<br />互動{p.engagement ?? 0}({p.rate ?? 0}%)</> : <span className="text-sand-400">—</span>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

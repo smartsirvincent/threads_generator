@@ -1,7 +1,7 @@
 // Threads 連線設定:GET 回連線狀態(帳號/到期/最後續期);POST 儲存憑證 / 立即續期 / 解除
 import { NextResponse } from 'next/server';
 import {
-  readThreadsAuth, saveThreadsAuth, clearThreadsAuth, getThreadsCreds,
+  readThreadsAuth, writeThreadsAuth, saveThreadsAuth, clearThreadsAuth, getThreadsCreds,
   validateThreadsToken, refreshThreadsToken, maybeRefreshThreadsToken,
 } from '@/lib/threads.js';
 
@@ -43,7 +43,14 @@ export async function POST(req) {
       if (!c.ok) return NextResponse.json({ ok: false, error: '尚未設定 Threads 連線' }, { status: 400 });
       try {
         const info = await validateThreadsToken(c.token);
-        return NextResponse.json({ ok: true, username: info.username, id: info.id, source: c.source });
+        // 自我修復:若儲存的 userId 與 /me 回的真實 Threads ID 不同,更新成正確的(否則發文會失敗)
+        let healed = false;
+        const a = await readThreadsAuth();
+        if (a && info.id && a.userId !== info.id) {
+          await writeThreadsAuth({ ...a, userId: info.id, username: info.username || a.username });
+          healed = true;
+        }
+        return NextResponse.json({ ok: true, username: info.username, id: info.id, source: c.source, healed, status: await status() });
       } catch (e) {
         return NextResponse.json({ ok: false, error: e.message }, { status: 400 });
       }
@@ -61,10 +68,11 @@ export async function POST(req) {
     const accessToken = String(body.accessToken || '').trim();
     if (!userId || !accessToken) return NextResponse.json({ error: '請填 User ID 與 Access Token' }, { status: 400 });
 
-    // 1) 先驗證 token 可用,順便拿 username
-    let info = { username: '' };
+    // 1) 先驗證 token 可用,拿 username 與「真實 Threads user id」(發文一定要用這個 id)
+    let info = { id: '', username: '' };
     try { info = await validateThreadsToken(accessToken); }
     catch (e) { return NextResponse.json({ error: `Token 驗證失敗:${e.message}` }, { status: 400 }); }
+    const realUserId = info.id || userId; // 以 /me 回的 id 為準,使用者填的常是別的 id
 
     // 2) 嘗試立即續期以取得精準效期(舊 token >24h 會成功;全新 token 會失敗→退回 60 天估計)
     let finalToken = accessToken;
@@ -75,8 +83,8 @@ export async function POST(req) {
       expiresTs = Date.now() + expiresIn * 1000;
     } catch (_) { /* 全新 token 尚不可續期,沿用並以 60 天估計 */ }
 
-    await saveThreadsAuth({ userId, token: finalToken, username: info.username, expiresTs });
-    return NextResponse.json({ ok: true, username: info.username, status: await status() });
+    await saveThreadsAuth({ userId: realUserId, token: finalToken, username: info.username, expiresTs });
+    return NextResponse.json({ ok: true, username: info.username, userId: realUserId, status: await status() });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

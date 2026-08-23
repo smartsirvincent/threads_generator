@@ -137,7 +137,19 @@ export async function GET(req) {
       acc.count += 1; const ins = insMap[e.mediaId]; if (ins) addMetrics(acc, ins); return acc;
     }, emptyMetrics()));
 
-    return NextResponse.json({ hasInsights, coversAll, from, to, totals, byType: byTypeArr, byTopic: byTopicArr, topPosts });
+    // 發文記錄:期間內所有貼文(新到舊,含成效數據),給「發文記錄」清單用
+    const records = entries.slice(0, 200).map((e) => {
+      const ins = insMap[e.mediaId];
+      const eng = ins ? ins.likes + ins.replies + ins.reposts + ins.quotes : 0;
+      return {
+        ts: e.ts, topicName: e.topicName, type: e.type, typeLabel: TYPE_LABEL[e.type] || e.type,
+        permalink: e.permalink, textPreview: e.textPreview, fromSystem: e.fromSystem,
+        views: ins?.views ?? null, engagement: ins ? eng : null,
+        rate: ins && ins.views > 0 ? +(eng / ins.views * 100).toFixed(1) : null,
+      };
+    });
+
+    return NextResponse.json({ hasInsights, coversAll, from, to, totals, byType: byTypeArr, byTopic: byTopicArr, topPosts, records });
   } catch (e) {
     return NextResponse.json({ error: e.message, byType: [], byTopic: [], topPosts: [], totals: null, hasInsights: false, coversAll: false }, { status: 200 });
   }

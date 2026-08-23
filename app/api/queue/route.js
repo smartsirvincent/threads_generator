@@ -1,10 +1,10 @@
 // 排程佇列:待發貼文清單(存 Cloudinary 固定槽)。GET 列出;POST 依 action 增/刪。
 import { NextResponse } from 'next/server';
-import { readQueue, writeQueue, readPriceChanges } from '@/lib/threads.js';
+import { readQueue, writeQueue, readPriceChanges, publishThreadsText, appendPostLog } from '@/lib/threads.js';
 import { hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const newId = () => `q-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
 
@@ -62,6 +62,23 @@ export async function POST(req) {
       items = items.map((x) => x.id === body.id ? { ...x, ...body.patch } : x);
       await writeQueue(items);
       return NextResponse.json({ ok: true });
+    }
+    // 立即發送「單一」貼文(1 篇 1 篇發)
+    if (action === 'postNow') {
+      const it = items.find((x) => x.id === body.id);
+      if (!it) return NextResponse.json({ error: '找不到該貼文' }, { status: 404 });
+      if (it.status === 'posted') return NextResponse.json({ ok: true, already: true });
+      try {
+        const { mediaId, permalink } = await publishThreadsText(it.text);
+        it.status = 'posted'; it.mediaId = mediaId; it.permalink = permalink; it.postedTs = Date.now(); it.error = '';
+        await appendPostLog({ ts: it.postedTs, mediaId, permalink, topicId: it.topicId, topicName: it.topicName, type: it.type, textPreview: (it.text || '').slice(0, 60) });
+        await writeQueue(items);
+        return NextResponse.json({ ok: true, permalink });
+      } catch (e) {
+        it.status = 'failed'; it.error = String(e.message).slice(0, 200);
+        await writeQueue(items);
+        return NextResponse.json({ error: e.message }, { status: 500 });
+      }
     }
     // 更新未發價格:預覽(哪些待發貼文會被改) / 套用
     if (action === 'refreshPreview') {
