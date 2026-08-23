@@ -4,10 +4,25 @@ import { NextResponse } from 'next/server';
 import {
   getThreadsCreds, publishThreadsText, appendPostLog, readPostLog,
   readQueue, writeQueue, readSettings, writeSettings, readTopics, readCanonicalProfile,
-  maybeRefreshThreadsToken,
+  readWeekly, maybeRefreshThreadsToken,
 } from '@/lib/threads.js';
 import { writePost } from '@/lib/post-writer.js';
 import { medicalClinicProfile } from '@/lib/verticals.js';
+
+// 依主題綁定的療程排出取用清單(★=3倍),再依 seed 取一個 + 組 context(與前端一致)
+function weeklyTreatmentContext(topic, products, seed) {
+  const names = topic?.treatments || []; const starred = topic?.starred || [];
+  const prods = names.map((n) => products.find((p) => p.name === n)).filter(Boolean);
+  if (!prods.length) return '';
+  const list = []; for (const p of prods) { const w = starred.includes(p.name) ? 3 : 1; for (let k = 0; k < w; k++) list.push(p); }
+  const p = list[seed % list.length]; if (!p) return '';
+  const inj = topic.inject || {}; const parts = [];
+  if (inj.name !== false) parts.push(`療程名稱:${p.name}`);
+  if (inj.price !== false && p.promo_offer) parts.push(`價格優惠:${p.promo_offer}`);
+  if (p.features) parts.push(`特點:${p.features}`);
+  if (inj.imageFocus !== false && p.image_focus) parts.push(`強化圖片方向:${p.image_focus}`);
+  return parts.join('\n');
+}
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -56,6 +71,42 @@ async function run() {
 
   const { token, ok } = await getThreadsCreds();
   if (!ok) return { ...out, error: 'Threads 未設定' };
+
+  // ⓪-2 每週排程範本 → 今天的時段materialize成佇列(每天一次,照表自動產文)
+  try {
+    const weekly = await readWeekly();
+    if (weekly.length) {
+      const s2 = await readSettings();
+      const today = new Date();
+      const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+      if (s2.lastWeeklyDate !== dateKey) {
+        const dow = today.getDay();
+        const todaySlots = weekly.filter((w) => w.weekday === dow);
+        let made = 0;
+        if (todaySlots.length) {
+          const topics = await readTopics();
+          const tById = Object.fromEntries(topics.map((t) => [t.id, t]));
+          const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
+          const products = prof.products || [];
+          const items = await readQueue();
+          let seed = 0;
+          for (const slot of todaySlots) {
+            const topic = tById[slot.topicId];
+            if (!topic) continue;
+            const [hh, mm] = String(slot.time).split(':').map(Number);
+            const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
+            const tc = weeklyTreatmentContext(topic, products, dow + seed);
+            const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc });
+            if (text) { items.push({ id: `wk-${dateKey}-${slot.id}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
+            seed++;
+          }
+          if (made) await writeQueue(items);
+        }
+        await writeSettings({ ...s2, lastWeeklyDate: dateKey });
+        out.weeklyMaterialized = made;
+      }
+    }
+  } catch (e) { out.weeklyError = String(e.message).slice(0, 200); }
 
   // ① 發送到期
   let items = await readQueue();

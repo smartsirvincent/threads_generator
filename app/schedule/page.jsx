@@ -9,6 +9,13 @@ const WEEK = [
 ];
 const TYPE_LABEL = { text: '純文字', long: '長文', image: '圖片' };
 const hhmm = (ts) => { const x = new Date(ts); return `${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
+// 依主題類型/名稱給格子左側色條
+function slotColor(type, name) {
+  if ((name || '').match(/天氣|氣候/)) return 'border-l-blue-400';
+  if (type === 'image') return 'border-l-gold-400';
+  if (type === 'long') return 'border-l-brand-400';
+  return 'border-l-sand-300';
+}
 
 export default function SchedulePage() {
   const [qItems, setQItems] = useState([]);
@@ -25,6 +32,14 @@ export default function SchedulePage() {
   const [editId, setEditId] = useState('');
   const [editText, setEditText] = useState('');
   const [sendingId, setSendingId] = useState('');
+  // 每週排程範本
+  const [topics, setTopics] = useState([]);
+  const [slots, setSlots] = useState([]);
+  const [wkDirty, setWkDirty] = useState(false);
+  const [wkMsg, setWkMsg] = useState('');
+  const [addTopic, setAddTopic] = useState('');
+  const [addTime, setAddTime] = useState('12:00');
+  const [addDays, setAddDays] = useState([]);
 
   async function loadQueue() {
     setQBusy(true);
@@ -35,7 +50,26 @@ export default function SchedulePage() {
     loadQueue();
     (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); } catch (_) { setDailyAuto(false); } })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setConfigured(!!d.configured); } catch (_) { setConfigured(false); } })();
+    (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
+    (async () => { try { const r = await fetch('/api/weekly', { cache: 'no-store' }); const d = await r.json(); setSlots(Array.isArray(d.slots) ? d.slots : []); } catch (_) {} })();
   }, []);
+
+  const topicById = useMemo(() => Object.fromEntries(topics.map((t) => [t.id, t])), [topics]);
+  function toggleAddDay(d) { setAddDays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
+  function addSlots() {
+    if (!addTopic || !addDays.length || !/^\d{2}:\d{2}$/.test(addTime)) { setWkMsg('請選主題、至少一個星期、並設定時間'); return; }
+    const add = addDays.map((d) => ({ id: `w-${Date.now()}-${d}-${Math.round(Math.random() * 1e4)}`, weekday: d, time: addTime, topicId: addTopic }));
+    setSlots((s) => [...s, ...add]); setWkDirty(true); setAddDays([]); setWkMsg('');
+  }
+  function removeSlot(id) { setSlots((s) => s.filter((x) => x.id !== id)); setWkDirty(true); }
+  async function saveWeekly() {
+    setWkMsg('儲存中…');
+    try {
+      const r = await fetch('/api/weekly', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slots }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWkDirty(false); setWkMsg(`✓ 已儲存 ${d.count} 個排程時段`); setTimeout(() => setWkMsg(''), 2500);
+    } catch (e) { setWkMsg('✗ ' + e.message); }
+  }
 
   async function toggleDailyAuto(v) {
     setDailyAuto(v);
@@ -82,18 +116,14 @@ export default function SchedulePage() {
 
   const pending = useMemo(() => qItems.filter((x) => x.status === 'pending').sort((a, b) => a.scheduledTs - b.scheduledTs), [qItems]);
 
-  // 每週時刻表:依 星期 → (時間+主題+類型) 彙整,不列每篇日期
-  const weekly = useMemo(() => {
-    const wk = {};
-    for (const it of pending) {
-      const wd = new Date(it.scheduledTs).getDay();
-      const key = `${hhmm(it.scheduledTs)}|${it.topicName || '(未指定)'}|${it.type || ''}`;
-      (wk[wd] ||= {});
-      const g = (wk[wd][key] ||= { time: hhmm(it.scheduledTs), topicName: it.topicName || '(未指定)', type: it.type || '', count: 0 });
-      g.count += 1;
-    }
-    return wk;
-  }, [pending]);
+  // 每週排程範本:時間列 × 星期欄 的格子
+  const times = useMemo(() => [...new Set(slots.map((s) => s.time))].sort(), [slots]);
+  const slotAt = useMemo(() => {
+    const m = {};
+    for (const s of slots) { const k = `${s.time}|${s.weekday}`; (m[k] ||= []).push(s); }
+    return m;
+  }, [slots]);
+  const todayDow = new Date().getDay();
 
   // 佇列依主題分組(可篩選)
   const topicsInQueue = useMemo(() => [...new Set(qItems.map((x) => x.topicName || '(未指定)'))], [qItems]);
@@ -115,36 +145,76 @@ export default function SchedulePage() {
         <p className="mt-2 text-xs">{configured === null ? '　' : configured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設定後才能發文</span>}</p>
       </div>
 
-      {/* 每週時刻表(依主題+類型) */}
+      {/* 每週排程範本(週期性,會儲存;cron 每天照表自動產文排入佇列) */}
       <div className="card space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-sm font-semibold text-sand-800">每週時刻表 <span className="font-normal text-sand-500">(待發 {pending.length} 則)</span></h2>
-          <button type="button" onClick={loadQueue} disabled={qBusy} className="rounded-xl border border-sand-200 bg-white px-2 py-1 text-xs text-sand-500 hover:bg-brand-50">↻ 重整</button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-sand-400">Weekly Overview</p>
+            <h2 className="font-display text-lg font-semibold text-sand-900">每週排程 <span className="text-sm font-normal text-sand-500">({slots.length} 個時段)</span></h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {wkMsg && <span className="text-xs text-emerald-600">{wkMsg}</span>}
+            <button type="button" onClick={saveWeekly} disabled={!wkDirty} className="btn-primary text-xs disabled:opacity-40">💾 儲存每週排程{wkDirty ? ' *' : ''}</button>
+          </div>
         </div>
-        {pending.length === 0 ? (
-          <p className="text-xs text-sand-400">目前沒有待發的排程。到「內容發文 → 主題產文」勾選後按「送到排程」。</p>
+
+        {/* 新增時段 */}
+        <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-2">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[180px]">
+              <label className="label text-xs">主題</label>
+              <select className="input text-sm" value={addTopic} onChange={(e) => setAddTopic(e.target.value)}>
+                <option value="">選一個主題…</option>
+                {topics.map((t) => <option key={t.id} value={t.id}>{TYPE_LABEL[t.type] || ''}｜{t.name}</option>)}
+              </select>
+            </div>
+            <div><label className="label text-xs">時間</label><input type="time" className="input text-sm" value={addTime} onChange={(e) => setAddTime(e.target.value)} /></div>
+          </div>
+          <div>
+            <label className="label text-xs">星期(可複選)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {WEEK.map(({ d, label }) => (
+                <button key={d} type="button" onClick={() => toggleAddDay(d)} className={`rounded-full border px-2.5 py-1 text-xs ${addDays.includes(d) ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{label}</button>
+              ))}
+              <button type="button" onClick={() => setAddDays([1, 2, 3, 4, 5])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">平日</button>
+              <button type="button" onClick={() => setAddDays([0, 1, 2, 3, 4, 5, 6])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">每天</button>
+            </div>
+          </div>
+          <button type="button" onClick={addSlots} className="btn-secondary text-sm">＋ 加入排程</button>
+        </div>
+
+        {/* 時間 × 星期 格子 */}
+        {slots.length === 0 ? (
+          <p className="text-xs text-sand-400">還沒有每週排程。用上方「加入排程」建立「每週幾、幾點、發哪個主題」,存檔後 cron 會每天照表自動產文並排入佇列。</p>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {WEEK.map(({ d, label }) => {
-              const gs = Object.values(weekly[d] || {}).sort((a, b) => a.time.localeCompare(b.time));
-              return (
-                <div key={d} className={`rounded-2xl border p-3 ${gs.length ? 'border-brand-200 bg-brand-50/30' : 'border-sand-200 bg-sand-50/50'}`}>
-                  <div className="mb-2 font-display text-sm font-semibold text-sand-800">{label}</div>
-                  <div className="space-y-1.5">
-                    {gs.length === 0 ? <span className="text-[11px] text-sand-400">—</span> : gs.map((g, i) => (
-                      <div key={i} className="rounded-xl bg-white px-2.5 py-1.5 text-xs shadow-soft">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-brand-700">{g.time}</span>
-                          <span className="rounded-full bg-gold-100 px-1.5 text-[10px] text-gold-700">{TYPE_LABEL[g.type] || g.type || '—'}</span>
-                          {g.count > 1 && <span className="text-[10px] text-sand-400">×{g.count}</span>}
-                        </div>
-                        <div className="truncate text-sand-700">{g.topicName}</div>
-                      </div>
-                    ))}
-                  </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-8 border-b border-sand-200 pb-1 text-[11px] font-medium text-sand-500">
+                <div className="px-2">TIME</div>
+                {WEEK.map(({ d, label }) => <div key={d} className={`px-2 ${d === todayDow ? 'text-brand-700' : ''}`}>{label}{d === todayDow ? ' ·今天' : ''}</div>)}
+              </div>
+              {times.map((tm) => (
+                <div key={tm} className="grid grid-cols-8 items-start border-b border-sand-100 py-1.5">
+                  <div className="px-2 pt-1 text-xs font-medium text-sand-500">{tm}</div>
+                  {WEEK.map(({ d }) => (
+                    <div key={d} className={`px-1 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
+                      {(slotAt[`${tm}|${d}`] || []).map((s) => {
+                        const tp = topicById[s.topicId];
+                        return (
+                          <div key={s.id} className={`group mb-1 rounded-md border border-l-4 border-sand-200 bg-white px-2 py-1 shadow-soft ${slotColor(tp?.type, tp?.name)}`}>
+                            <div className="flex items-start justify-between gap-1">
+                              <span className="truncate text-[11px] font-medium text-sand-800">{tp?.name || '(主題已刪)'}</span>
+                              <button type="button" onClick={() => removeSlot(s.id)} className="shrink-0 text-[11px] text-sand-300 hover:text-red-600">✕</button>
+                            </div>
+                            <span className="rounded bg-sand-100 px-1 text-[9px] text-sand-500">{TYPE_LABEL[tp?.type] || '—'}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         )}
       </div>
