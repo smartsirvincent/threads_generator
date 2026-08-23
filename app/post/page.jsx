@@ -93,13 +93,14 @@ export default function PostPage() {
     const n = Math.min(Math.max(Number(count) || 1, 1), 100);
     setGenBusy(true); setError(''); setActMsg(''); setGens([]); setGenProg({ done: 0, total: n });
     const results = new Array(n).fill(null);
+    const seedBase = Math.floor(Math.random() * 210); // 每批隨機起點,批間也不同(210=各軸長度 LCM)
     let done = 0, cursor = 0;
     const CONC = 3;
     async function worker() {
       while (cursor < n) {
         const i = cursor++;
         try {
-          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: i, ...ctx, clinic }) });
+          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, ...ctx, clinic }) });
           const d = await r.json();
           results[i] = { id: `g-${i}-${Date.now()}`, text: r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`, keep: r.ok };
         } catch (e) { results[i] = { id: `g-${i}`, text: `⚠ ${e.message}`, keep: false }; }
