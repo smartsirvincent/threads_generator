@@ -412,7 +412,7 @@ export default function PostPage() {
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
-                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(t?.type === 'image'); }}>
+                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(!!(t && (t.type === 'image' || (t.imagePrompt || '').trim()))); }}>
                     <option value="">選一個主題…</option>
                     {TYPES.map((ty) => { const g = topics.filter((t) => t.type === ty.key && t.enabled !== false); return g.length ? <optgroup key={ty.key} label={`${ty.emoji} ${ty.label}`}>{g.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null; })}
                   </select>
@@ -420,11 +420,12 @@ export default function PostPage() {
                 <div><label className="label text-xs">產幾則(≤100)</label><input type="number" min={1} max={100} className="input w-24 text-sm" value={count} onChange={(e) => setCount(e.target.value)} /></div>
                 <button type="button" onClick={generateBatch} disabled={genBusy || !selected} className="btn-primary text-sm disabled:opacity-50">{genBusy ? `產文中 ${genProg.done}/${genProg.total}` : '✍️ 批次產文'}</button>
               </div>
-              <label className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/50 px-3 py-2 text-sm text-sand-700">
+              <label className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm ${genImages ? 'border-brand-300 bg-brand-50/60 text-sand-800' : 'border-sand-200 bg-sand-50 text-sand-600'}`}>
                 <input type="checkbox" checked={genImages} onChange={(e) => setGenImages(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
-                🖼 產文時一併產圖(依文案內容,產完就有圖,不必等發文時才產)
+                🖼 產文時一併產圖(依文案內容,每張約 1 分鐘,產完就有圖)
                 {brandLogo ? <span className="text-[11px] text-sand-400">· 主題勾 LOGO 會自動蓋上</span> : <span className="text-[11px] text-gold-600">· 未設 LOGO(到「品牌與療程」填)</span>}
               </label>
+              {selected?.type === 'image' && !genImages && <p className="text-[11px] text-gold-600">⚠ 這是圖片型主題,建議勾選上面「產文時一併產圖」才會出圖。</p>}
               {selected && <p className="text-[11px] text-sand-500">提示詞:{selected.prompt || '(無)'}</p>}
 
               {gens.length > 0 && (
