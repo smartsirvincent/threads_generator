@@ -168,6 +168,7 @@ export default function PostPage() {
     setGenBusy(true); setError(''); setActMsg(''); setGens([]); setGenProg({ done: 0, total: n });
     const results = new Array(n).fill(null);
     const seedBase = Math.floor(Math.random() * 210); // 每批隨機起點,批間也不同(210=各軸長度 LCM)
+    const wantImages = genImages || selected.type === 'image'; // 圖片型主題一定產圖
     // 綁定療程:依「輪流 / 指定比例」排出取用清單,產文時輪替帶入
     const pickList = buildTreatmentPickList(selected);
     let done = 0, cursor = 0;
@@ -183,10 +184,10 @@ export default function PostPage() {
           const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, varLabel: selected.varLabel || '', variableValue, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
-          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: genImages && r.ok, imgErr: '' };
+          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: wantImages && r.ok, imgErr: '' };
           done++; setGenProg({ done, total: n }); setGens(results.filter(Boolean));
           // 產文時一併產圖:先產文(上面)→ 再依文案內容產圖
-          if (genImages && r.ok && text && !text.startsWith('⚠')) {
+          if (wantImages && r.ok && text && !text.startsWith('⚠')) {
             try {
               const url = await genImageForPost({ topic: selected, caption: text, treatment: tp });
               results[i] = { ...results[i], imageUrl: url, imgBusy: false };
@@ -430,12 +431,14 @@ export default function PostPage() {
                 <div><label className="label text-xs">產幾則(≤100)</label><input type="number" min={1} max={100} className="input w-24 text-sm" value={count} onChange={(e) => setCount(e.target.value)} /></div>
                 <button type="button" onClick={generateBatch} disabled={genBusy || !selected} className="btn-primary text-sm disabled:opacity-50">{genBusy ? `產文中 ${genProg.done}/${genProg.total}` : '✍️ 批次產文'}</button>
               </div>
-              <label className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm ${genImages ? 'border-brand-300 bg-brand-50/60 text-sand-800' : 'border-sand-200 bg-sand-50 text-sand-600'}`}>
-                <input type="checkbox" checked={genImages} onChange={(e) => setGenImages(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
-                🖼 產文時一併產圖(依文案內容,每張約 1 分鐘,產完就有圖)
-                {brandLogo ? <span className="text-[11px] text-sand-400">· 主題勾 LOGO 會自動蓋上</span> : <span className="text-[11px] text-gold-600">· 未設 LOGO(到「品牌與療程」填)</span>}
-              </label>
-              {selected?.type === 'image' && !genImages && <p className="text-[11px] text-gold-600">⚠ 這是圖片型主題,建議勾選上面「產文時一併產圖」才會出圖。</p>}
+              {(() => { const forced = selected?.type === 'image'; const on = forced || genImages; return (
+                <label className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm ${on ? 'border-brand-300 bg-brand-50/60 text-sand-800' : 'border-sand-200 bg-sand-50 text-sand-600'} ${forced ? 'opacity-90' : ''}`}>
+                  <input type="checkbox" checked={on} disabled={forced} onChange={(e) => setGenImages(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500 disabled:opacity-60" />
+                  🖼 產文時一併產圖(依文案內容,每張約 1 分鐘,產完就有圖)
+                  {forced && <span className="rounded-full bg-brand-100 px-2 text-[11px] text-brand-700">圖片型主題必產圖</span>}
+                  {brandLogo ? <span className="text-[11px] text-sand-400">· 主題勾 LOGO 會自動蓋上</span> : <span className="text-[11px] text-gold-600">· 未設 LOGO(到「品牌與療程」填)</span>}
+                </label>
+              ); })()}
               {selected && <p className="text-[11px] text-sand-500">提示詞:{selected.prompt || '(無)'}</p>}
 
               {gens.length > 0 && (
