@@ -11,11 +11,24 @@ import { loadCanonicalProfile } from '@/lib/profile-store.js';
 import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
+const logoCloudCache = {}; // { 原始logoURL: cloudinaryURL }
 
 function firstLogo(profile) {
   const bl = profile?.brand_logos;
   if (Array.isArray(bl)) return bl[0] || '';
   if (typeof bl === 'string') return bl.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || '';
+  return '';
+}
+// 外部 LOGO(如 i.ibb.co)疊圖會壞 → 先轉存 Cloudinary,用 l_<id> 疊才穩
+async function resolveLogo(logo) {
+  if (!logo) return '';
+  if (/res\.cloudinary\.com\//.test(logo)) return logo;
+  if (logoCloudCache[logo]) return logoCloudCache[logo];
+  try {
+    const r = await fetch('/api/logo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: logo }) });
+    const d = await r.json();
+    if (r.ok && d.url) { logoCloudCache[logo] = d.url; return d.url; }
+  } catch (_) {}
   return '';
 }
 
@@ -96,10 +109,11 @@ export default function MaterialPage({ heading }) {
     });
     const fd = await fin.json();
     if (!fin.ok || !fd.url) throw new Error(fd.error || `finalize HTTP ${fin.status}`);
-    // 1.91:1 裁切 + 疊上真 logo(左上角,pixel-perfect,非 AI 畫)
+    // 1.91:1 裁切 + 疊上真 logo(先把外部 LOGO 轉存 Cloudinary,用 l_<id> 疊才不會壞)
+    const logo = (useLogo && brandLogo) ? await resolveLogo(brandLogo) : '';
     const url = decorateImageUrl(fd.url, {
       cropAr: cloudinaryAr,
-      logoUrl: (useLogo && brandLogo) ? brandLogo : '',
+      logoUrl: logo,
     });
     return { target, url };
   }
