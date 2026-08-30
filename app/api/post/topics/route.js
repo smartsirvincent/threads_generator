@@ -55,7 +55,7 @@ ${keyword ? `**參考關鍵字/方向**: ${keyword}` : ''}
 ${clinicText ? `**診所資訊**:\n${clinicText}` : ''}
 
 請發想 ${n} 個「${t}」型別的主題,每個附提示詞。直接回 JSON。`;
-    const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 2000, temperature: culture ? 0.85 : 0.95 });
+    const parsed = await callJSON({ system: culture ? CULTURE_SYSTEM : SYSTEM, user, maxTokens: 8000, temperature: culture ? 0.85 : 0.95 });
     const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
       .filter((x) => x && x.name)
       .map((x) => ({
