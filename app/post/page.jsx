@@ -204,6 +204,16 @@ export default function PostPage() {
     setGenBusy(false);
   }
   function updateGen(id, patch) { setGens((arr) => arr.map((g) => g.id === id ? { ...g, ...patch } : g)); }
+  // 單則補產圖(不管上面開關,隨時針對這一則產圖)
+  async function makeImage(g) {
+    if (badGen(g)) { setError('這則內容無效,無法產圖'); return; }
+    updateGen(g.id, { imgBusy: true, imgErr: '' });
+    try {
+      const tp = buildTreatmentPickList(selected)[0] || null;
+      const url = await genImageForPost({ topic: selected, caption: g.text, treatment: tp });
+      updateGen(g.id, { imageUrl: url, imgBusy: false });
+    } catch (e) { updateGen(g.id, { imgBusy: false, imgErr: String(e.message).slice(0, 140) }); }
+  }
   function removeGen(id) { setGens((arr) => arr.filter((g) => g.id !== id)); }
   const kept = gens.filter((g) => g.keep && g.text.trim() && !g.text.startsWith('⚠'));
 
@@ -446,6 +456,8 @@ export default function PostPage() {
                         {g.imgErr && <p className="mt-2 text-xs text-red-600">圖片生成失敗:{g.imgErr}</p>}
                         {g.imageUrl && <img src={g.imageUrl} alt="" onClick={() => setLightbox(g.imageUrl)} className="mt-2 w-40 cursor-zoom-in rounded-xl border border-sand-200 transition hover:opacity-90" />}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {!g.imageUrl && !g.imgBusy && <button type="button" onClick={() => makeImage(g)} disabled={badGen(g)} className="rounded-lg border border-brand-300 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-40">🖼 產圖</button>}
+                          {g.imageUrl && <button type="button" onClick={() => makeImage(g)} className="rounded-lg border border-sand-200 px-2.5 py-1 text-xs text-sand-500 hover:bg-sand-50">🔄 重產圖</button>}
                           <button type="button" onClick={() => postOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40">🧵 立即發文</button>
                           <button type="button" onClick={() => queueOne(g)} disabled={badGen(g) || g.imgBusy} className="rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-40">🗓 存入排程</button>
                           <button type="button" onClick={() => removeGen(g.id)} className="rounded-lg border border-sand-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">🗑 刪除</button>
