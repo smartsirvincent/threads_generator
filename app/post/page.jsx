@@ -7,6 +7,7 @@ import { loadCanonicalProfile } from '@/lib/profile-store.js';
 import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
+const logoCloudCache = {}; // { 原始logoURL: cloudinaryURL }
 function firstLogo(profile) {
   const bl = profile?.brand_logos;
   if (Array.isArray(bl)) return bl[0] || '';
@@ -126,8 +127,20 @@ export default function PostPage() {
   }
 
   const brandLogo = firstLogo(profile);
+  // 把 LOGO 轉成 Cloudinary URL(外部 URL 疊圖會壞);解析一次、快取(module 級)
+  async function resolveLogo() {
+    if (!brandLogo) return '';
+    if (/res\.cloudinary\.com\//.test(brandLogo)) return brandLogo;
+    if (logoCloudCache[brandLogo]) return logoCloudCache[brandLogo];
+    try {
+      const r = await fetch('/api/logo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: brandLogo }) });
+      const d = await r.json();
+      if (r.ok && d.url) { logoCloudCache[brandLogo] = d.url; return d.url; }
+    } catch (_) {}
+    return ''; // 無法轉存就不疊 logo(至少圖能出來)
+  }
   // 圖片型主題:先有文案,再依「文案內容 + 圖片提示詞 + 療程」產圖(submit→poll→finalize→疊LOGO)
-  async function genImageForPost({ topic, caption, treatment }) {
+  async function genImageForPost({ topic, caption, treatment, logoUrl }) {
     const product = treatment || { name: topic.name, features: '', image_focus: topic.imagePrompt || '' };
     const inj = topic.inject || {};
     // 圖上文字:主標=療程名(若帶入名稱)、副標=優惠價(若帶入價格,取第一組較精簡)
@@ -157,7 +170,7 @@ export default function PostPage() {
     const fin = await fetch('/api/gen-image/finalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kieUrl, brand: profile.brand || 'material' }) });
     const fd = await fin.json();
     if (!fin.ok || !fd.url) throw new Error(fd.error || `finalize HTTP ${fin.status}`);
-    return decorateImageUrl(fd.url, { cropAr: sd.cloudinaryAr, logoUrl: (topic.useLogo && brandLogo) ? brandLogo : '' });
+    return decorateImageUrl(fd.url, { cropAr: sd.cloudinaryAr, logoUrl: topic.useLogo ? (logoUrl || '') : '' });
   }
 
   // ---- 批次產文 ----
@@ -169,6 +182,7 @@ export default function PostPage() {
     const results = new Array(n).fill(null);
     const seedBase = Math.floor(Math.random() * 210); // 每批隨機起點,批間也不同(210=各軸長度 LCM)
     const wantImages = genImages || selected.type === 'image'; // 圖片型主題一定產圖
+    const logoUrl = wantImages && selected.useLogo ? await resolveLogo() : '';
     // 綁定療程:依「輪流 / 指定比例」排出取用清單,產文時輪替帶入
     const pickList = buildTreatmentPickList(selected);
     let done = 0, cursor = 0;
@@ -189,7 +203,7 @@ export default function PostPage() {
           // 產文時一併產圖:先產文(上面)→ 再依文案內容產圖
           if (wantImages && r.ok && text && !text.startsWith('⚠')) {
             try {
-              const url = await genImageForPost({ topic: selected, caption: text, treatment: tp });
+              const url = await genImageForPost({ topic: selected, caption: text, treatment: tp, logoUrl });
               results[i] = { ...results[i], imageUrl: url, imgBusy: false };
             } catch (e) { results[i] = { ...results[i], imgBusy: false, imgErr: String(e.message).slice(0, 120) }; }
             setGens(results.filter(Boolean));
@@ -211,7 +225,8 @@ export default function PostPage() {
     updateGen(g.id, { imgBusy: true, imgErr: '' });
     try {
       const tp = buildTreatmentPickList(selected)[0] || null;
-      const url = await genImageForPost({ topic: selected, caption: g.text, treatment: tp });
+      const logoUrl = selected.useLogo ? await resolveLogo() : '';
+      const url = await genImageForPost({ topic: selected, caption: g.text, treatment: tp, logoUrl });
       updateGen(g.id, { imageUrl: url, imgBusy: false });
     } catch (e) { updateGen(g.id, { imgBusy: false, imgErr: String(e.message).slice(0, 140) }); }
   }
