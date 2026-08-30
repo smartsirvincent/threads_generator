@@ -4,7 +4,7 @@ import { callJSON } from '@/lib/llm.js';
 import { clinicContextText } from '@/lib/verticals.js';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const TYPE_HINT = {
   text: '純文字短貼文(Threads,120-300字,口語、有 hook、易互動)',
