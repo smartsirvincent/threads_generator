@@ -72,41 +72,42 @@ async function run() {
   const { token, ok } = await getThreadsCreds();
   if (!ok) return { ...out, error: 'Threads 未設定' };
 
-  // ⓪-2 每週排程範本 → 今天的時段materialize成佇列(每天一次,照表自動產文)
+  // ⓪-2 每週排程 → 今天的時段materialize成佇列(每天一次)。排程設在各「主題」上(topic.schedule)。
   try {
-    const weekly = await readWeekly();
-    if (weekly.length) {
-      const s2 = await readSettings();
-      const today = new Date();
-      const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
-      if (s2.lastWeeklyDate !== dateKey) {
-        const dow = today.getDay();
-        const todaySlots = weekly.filter((w) => w.weekday === dow);
-        let made = 0;
-        if (todaySlots.length) {
-          const topics = await readTopics();
-          const tById = Object.fromEntries(topics.map((t) => [t.id, t]));
-          const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
-          const products = prof.products || [];
-          const items = await readQueue();
-          let seed = 0;
-          for (const slot of todaySlots) {
-            const topic = tById[slot.topicId];
-            if (!topic) continue;
-            const [hh, mm] = String(slot.time).split(':').map(Number);
-            const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
-            const tc = weeklyTreatmentContext(topic, products, dow + seed);
-            const vars = topic.variables || [];
-            const variableValue = vars.length ? vars[(dow + seed) % vars.length] : '';
-            const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
-            if (text) { items.push({ id: `wk-${dateKey}-${slot.id}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
-            seed++;
-          }
-          if (made) await writeQueue(items);
+    const s2 = await readSettings();
+    const today = new Date();
+    const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+    if (s2.lastWeeklyDate !== dateKey) {
+      const dow = today.getDay();
+      const topics = await readTopics();
+      // 收集今天要發的 (topic, time)
+      const due = [];
+      for (const topic of topics) {
+        if (topic.enabled === false) continue;
+        for (const slot of (topic.schedule || [])) {
+          if (slot.weekday === dow && /^\d{2}:\d{2}$/.test(slot.time || '')) due.push({ topic, time: slot.time });
         }
-        await writeSettings({ ...s2, lastWeeklyDate: dateKey });
-        out.weeklyMaterialized = made;
       }
+      let made = 0;
+      if (due.length) {
+        const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
+        const products = prof.products || [];
+        const items = await readQueue();
+        let seed = 0;
+        for (const { topic, time } of due) {
+          const [hh, mm] = String(time).split(':').map(Number);
+          const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
+          const tc = weeklyTreatmentContext(topic, products, dow + seed);
+          const vars = topic.variables || [];
+          const variableValue = vars.length ? vars[(dow + seed) % vars.length] : '';
+          const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
+          if (text) { items.push({ id: `wk-${dateKey}-${topic.id}-${time.replace(':', '')}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
+          seed++;
+        }
+        if (made) await writeQueue(items);
+      }
+      await writeSettings({ ...s2, lastWeeklyDate: dateKey });
+      out.weeklyMaterialized = made;
     }
   } catch (e) { out.weeklyError = String(e.message).slice(0, 200); }
 

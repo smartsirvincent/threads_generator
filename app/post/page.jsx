@@ -83,7 +83,7 @@ export default function PostPage() {
   function addPicked() {
     const picked = suggestions.filter((s) => s._picked);
     if (!picked.length) return;
-    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, enabled: true }))]);
+    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, varOptions: s.varOptions || [], varLabel: s.varLabel || '', variables: s.variables || [], enabled: true }))]);
     setSuggestions([]); setDirty(true); setSaveMsg('已加入,記得按「存檔到雲端」');
   }
   function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
@@ -403,6 +403,9 @@ export default function PostPage() {
                   </div>
                   {t.culture && <p className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] text-blue-700">🇹🇭 純泰國文化模式:產文只介紹泰國文化/旅遊,不談產品/品牌/療程/優惠(綁定療程不會生效)</p>}
 
+                  {/* 每週發文時段(設在主題上) */}
+                  <ScheduleEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+
                   {/* 區分變數:讓同主題每篇聚焦不同具體對象 */}
                   <VariableEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
 
@@ -568,29 +571,82 @@ export default function PostPage() {
   );
 }
 
-// 區分變數:一個維度(varLabel)+ 多個具體值(variables),產文時每篇輪一個不同的值深入
+// 區分變數:AI 建議 2-3 個維度(varOptions)供勾選;選中的維度 → varLabel + variables,產文時輪值
 function VariableEditor({ topic, onChange }) {
   const [nv, setNv] = useState('');
   const vars = topic.variables || [];
+  const options = topic.varOptions || [];
   function add() { const v = nv.trim(); if (v && !vars.includes(v)) onChange({ variables: [...vars, v] }); setNv(''); }
   function remove(v) { onChange({ variables: vars.filter((x) => x !== v) }); }
+  function pickOption(o) { onChange({ varLabel: o.label, variables: [...(o.values || [])] }); }
   return (
     <div className="rounded-xl border border-gold-200 bg-gold-50/40 p-2 space-y-2">
+      {options.length > 0 && (
+        <div className="space-y-1">
+          <span className="text-[11px] font-medium text-sand-700">🔀 AI 建議的變數維度(點一個套用)</span>
+          <div className="flex flex-wrap gap-1">
+            {options.map((o, i) => {
+              const active = (topic.varLabel || '') === o.label;
+              return (
+                <button key={i} type="button" onClick={() => pickOption(o)} title={(o.values || []).join('、')}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] ${active ? 'border-brand-400 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-600 hover:bg-brand-50'}`}>
+                  {active ? '✓ ' : ''}{o.label}（{(o.values || []).length}）
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[11px] font-medium text-sand-700">🔀 區分變數</span>
-        <input className="input flex-1 py-1 text-xs" value={topic.varLabel || ''} placeholder="維度名稱(例:捷運站、泰國人類型、療程項目)" onChange={(e) => onChange({ varLabel: e.target.value })} />
+        <span className="shrink-0 text-[11px] font-medium text-sand-700">目前維度</span>
+        <input className="input flex-1 py-1 text-xs" value={topic.varLabel || ''} placeholder="維度名稱(例:捷運站、療程項目)" onChange={(e) => onChange({ varLabel: e.target.value })} />
       </div>
       <div className="flex flex-wrap gap-1">
         {vars.map((v) => (
           <span key={v} className="flex items-center gap-1 rounded-full border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-700">{v}<button type="button" onClick={() => remove(v)} className="text-sand-400 hover:text-red-600">✕</button></span>
         ))}
-        {vars.length === 0 && <span className="text-[11px] text-sand-400">尚無變數值(用 AI 推薦會自動帶,或在下方手動加)</span>}
+        {vars.length === 0 && <span className="text-[11px] text-sand-400">尚無變數值(點上面 AI 建議維度套用,或在下方手動加)</span>}
       </div>
       <div className="flex gap-1">
         <input className="input flex-1 py-1 text-xs" value={nv} placeholder="新增一個值,按 Enter" onChange={(e) => setNv(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
         <button type="button" onClick={add} className="btn-secondary text-xs">＋</button>
       </div>
       <p className="text-[11px] text-sand-400">產文時每篇輪一個不同的值深入寫。目前 {vars.length} 個值 → 可產出約 {vars.length || '—'} 種不同對象的貼文。</p>
+    </div>
+  );
+}
+
+// 每週發文時段(設在主題上):weekday + time,cron 每天照表自動產文排入佇列
+function ScheduleEditor({ topic, onChange }) {
+  const WD = [{ d: 1, l: '一' }, { d: 2, l: '二' }, { d: 3, l: '三' }, { d: 4, l: '四' }, { d: 5, l: '五' }, { d: 6, l: '六' }, { d: 0, l: '日' }];
+  const sched = topic.schedule || [];
+  const [days, setDays] = useState([]);
+  const [time, setTime] = useState('12:00');
+  function toggleDay(d) { setDays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
+  function add() {
+    if (!days.length || !/^\d{2}:\d{2}$/.test(time)) return;
+    const next = [...sched];
+    for (const d of days) if (!next.some((s) => s.weekday === d && s.time === time)) next.push({ weekday: d, time });
+    onChange({ schedule: next }); setDays([]);
+  }
+  function remove(s) { onChange({ schedule: sched.filter((x) => !(x.weekday === s.weekday && x.time === s.time)) }); }
+  const lbl = (d) => (WD.find((w) => w.d === d) || {}).l || '?';
+  return (
+    <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-2 space-y-2">
+      <span className="text-[11px] font-medium text-sand-700">🗓 每週發文時段(cron 會照表自動產文發送)</span>
+      {sched.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {sched.slice().sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time)).map((s, i) => (
+            <span key={i} className="flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] text-brand-700">週{lbl(s.weekday)} {s.time}<button type="button" onClick={() => remove(s)} className="text-sand-400 hover:text-red-600">✕</button></span>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {WD.map(({ d, l }) => <button key={d} type="button" onClick={() => toggleDay(d)} className={`rounded-full border px-2 py-0.5 text-[11px] ${days.includes(d) ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{l}</button>)}
+        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-[11px]" />
+        <button type="button" onClick={add} className="btn-secondary text-xs">＋ 加時段</button>
+      </div>
+      {sched.length === 0 && <p className="text-[11px] text-sand-400">尚未設定;設了之後 cron 會在每週指定時段自動用此主題產文發送。</p>}
     </div>
   );
 }
