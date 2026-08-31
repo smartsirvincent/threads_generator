@@ -366,9 +366,43 @@ const RATIO_INFO = {
   '1.91:1': 'FB / IG 橫向',
 };
 
+function dtLocal(ms) { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+
 function ResultList({ results }) {
+  const [schedAt, setSchedAt] = useState(dtLocal(Date.now() + 3600000));
+  const [busy, setBusy] = useState('');   // 正在處理的 key
+  const [done, setDone] = useState({});   // { key: '已發'/'已排程' }
+  const [msg, setMsg] = useState('');
+
+  async function postNow(r, img, key) {
+    const text = (r.copy || r.title || r.treatment || '').trim();
+    if (!confirm('確定立即發送這張素材圖到 Threads?')) return;
+    setBusy(key); setMsg('');
+    try {
+      const res = await fetch('/api/threads/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, imageUrl: img.url, topicName: '素材發文', type: 'image' }) });
+      const d = await res.json(); if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setDone((m) => ({ ...m, [key]: '✓ 已發' }));
+    } catch (e) { setMsg('✗ ' + e.message); } finally { setBusy(''); }
+  }
+  async function queueAt(r, img, key) {
+    const text = (r.copy || r.title || r.treatment || '').trim();
+    const ts = new Date(schedAt).getTime();
+    if (!ts || ts < Date.now()) { setMsg('排程時間需晚於現在'); return; }
+    setBusy(key); setMsg('');
+    try {
+      const res = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items: [{ text, imageUrl: img.url, topicName: '素材發文', type: 'image', scheduledTs: ts }] }) });
+      const d = await res.json(); if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setDone((m) => ({ ...m, [key]: '✓ 已排程' }));
+    } catch (e) { setMsg('✗ ' + e.message); } finally { setBusy(''); }
+  }
+
   return (
     <div className="space-y-4">
+      <div className="card flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-sand-600">發文/排程都會歸類為「<strong className="text-brand-700">素材發文</strong>」</span>
+        <label className="flex items-center gap-1 text-xs text-sand-500">排程時間<input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} className="input py-1 text-xs" /></label>
+        {msg && <span className="text-xs text-red-600">{msg}</span>}
+      </div>
       {results.map((r, i) => (
         <div key={i} className="card space-y-3">
           <div className="flex items-center justify-between">
@@ -379,7 +413,9 @@ function ResultList({ results }) {
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">⚠ {r.error}</div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {(r.results || []).map((img, j) => (
+              {(r.results || []).map((img, j) => {
+                const key = `${i}-${j}`;
+                return (
                 <div key={j} className="overflow-hidden rounded-2xl border border-sand-200 bg-white shadow-soft">
                   <div className="bg-sand-50 px-3 py-1.5 text-[11px] text-sand-500">{img.target} · {RATIO_INFO[img.target] || ''}</div>
                   <div className="bg-sand-100" style={{ aspectRatio: img.target === '1:1' ? '1/1' : img.target === '9:16' ? '9/16' : '1.91/1' }}>
@@ -389,15 +425,24 @@ function ResultList({ results }) {
                       : <img src={img.url} alt={img.target} className="size-full object-cover" loading="lazy" />}
                   </div>
                   {!img.error && (
-                    <a href={img.url} target="_blank" rel="noreferrer" download className="block bg-brand-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-brand-700">⬇ 下載</a>
+                    <div className="space-y-1 p-2">
+                      {done[key] ? <div className="rounded-lg bg-emerald-50 py-1 text-center text-xs text-emerald-700">{done[key]}</div> : (
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => postNow(r, img, key)} disabled={busy === key} className="flex-1 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">{busy === key ? '…' : '🧵 立即發'}</button>
+                          <button type="button" onClick={() => queueAt(r, img, key)} disabled={busy === key} className="flex-1 rounded-lg bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50">🗓 排程</button>
+                        </div>
+                      )}
+                      <a href={img.url} target="_blank" rel="noreferrer" download className="block rounded-lg border border-sand-200 py-1 text-center text-xs text-sand-500 hover:bg-sand-50">⬇ 下載</a>
+                    </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {r.copy && (
-            <details className="text-xs">
-              <summary className="cursor-pointer text-sand-500">貼文文案</summary>
+            <details className="text-xs" open>
+              <summary className="cursor-pointer text-sand-500">貼文文案(發文會用這段)</summary>
               <pre className="mt-2 whitespace-pre-wrap font-sans text-sand-700">{r.copy}</pre>
             </details>
           )}

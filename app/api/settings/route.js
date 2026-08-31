@@ -18,6 +18,12 @@ export async function POST(req) {
     const cur = await readSettings();
     const next = { ...cur };
     if (typeof body.dailyAuto === 'boolean') next.dailyAuto = body.dailyAuto;
+    if (body.weatherDaily && typeof body.weatherDaily === 'object') {
+      next.weatherDaily = {
+        enabled: !!body.weatherDaily.enabled,
+        time: /^\d{2}:\d{2}$/.test(body.weatherDaily.time || '') ? body.weatherDaily.time : '08:00',
+      };
+    }
     await writeSettings(next);
     return NextResponse.json({ ok: true, ...next });
   } catch (e) {

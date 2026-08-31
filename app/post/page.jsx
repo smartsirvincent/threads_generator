@@ -71,12 +71,26 @@ export default function PostPage() {
   const [wxDate, setWxDate] = useState(todayStr());
   const [wxTime, setWxTime] = useState(nowTime());
   const [wxMsg, setWxMsg] = useState('');
+  const [wxDailyOn, setWxDailyOn] = useState(false);
+  const [wxDailyTime, setWxDailyTime] = useState('08:00');
+  const [wxDailyMsg, setWxDailyMsg] = useState('');
 
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
     (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setThreadsConfigured(!!d.configured); } catch (_) { setThreadsConfigured(false); } })();
+    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); if (d.weatherDaily) { setWxDailyOn(!!d.weatherDaily.enabled); if (d.weatherDaily.time) setWxDailyTime(d.weatherDaily.time); } } catch (_) {} })();
   }, []);
+
+  async function saveWeatherDaily(enabled, time) {
+    setWxDailyOn(enabled); if (time) setWxDailyTime(time);
+    setWxDailyMsg('儲存中…');
+    try {
+      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weatherDaily: { enabled, time: time || wxDailyTime } }) });
+      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
+      setWxDailyMsg(enabled ? `✓ 已設定每天 ${time || wxDailyTime} 自動發天氣提醒` : '✓ 已關閉每日天氣提醒'); setTimeout(() => setWxDailyMsg(''), 2500);
+    } catch (e) { setWxDailyMsg('✗ ' + e.message); }
+  }
 
   // ---- 主題庫 ----
   async function brainstorm() {
@@ -547,6 +561,21 @@ export default function PostPage() {
         <div className="card space-y-3">
           <h2 className="font-display text-sm font-semibold text-sand-800">🌤 預約發文 · 曼谷天氣提醒</h2>
           <p className="text-xs text-sand-500">串接曼谷當天天氣(氣溫／濕度／紫外線／降雨),自動產出「注意事項＋保養／術後照護」貼文。可立即發或預約時間發。</p>
+
+          {/* 每天定時自動發(cron 到時抓當下天氣) */}
+          <div className="rounded-2xl border border-brand-200 bg-brand-50/50 p-3 space-y-2">
+            <label className="flex flex-wrap items-center gap-2 text-sm text-sand-700">
+              <input type="checkbox" checked={wxDailyOn} onChange={(e) => saveWeatherDaily(e.target.checked, wxDailyTime)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
+              🕗 每天自動發天氣提醒
+              <span className="flex items-center gap-1 text-xs text-sand-500">於
+                <input type="time" value={wxDailyTime} onChange={(e) => setWxDailyTime(e.target.value)} onBlur={(e) => { if (wxDailyOn) saveWeatherDaily(true, e.target.value); }} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-xs" />
+              </span>
+              {wxDailyMsg && <span className="text-xs text-emerald-700">{wxDailyMsg}</span>}
+            </label>
+            <p className="text-[11px] text-sand-400">開啟後,cron 每天到指定時間會**抓當下的天氣**即時產文並發送(顯示在排程月曆)。需外部 cron 每小時打 /api/cron/tick。</p>
+          </div>
+
+          <p className="text-xs font-medium text-sand-600">或,手動產一則:</p>
           <button type="button" onClick={genWeatherPost} disabled={wxBusy} className="btn-primary text-sm disabled:opacity-50">{wxBusy ? '產生中…' : '🌤 抓天氣並產文'}</button>
           {wxMsg && <p className="text-xs text-emerald-700">{wxMsg}</p>}
 

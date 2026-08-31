@@ -35,6 +35,7 @@ export default function SchedulePage() {
   const [lightbox, setLightbox] = useState('');
   const [topics, setTopics] = useState([]);
   const [view, setView] = useState('month'); // 'month' | 'week'
+  const [weatherDaily, setWeatherDaily] = useState(null);
 
   async function loadQueue() {
     setQBusy(true);
@@ -43,7 +44,7 @@ export default function SchedulePage() {
   }
   useEffect(() => {
     loadQueue();
-    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); } catch (_) { setDailyAuto(false); } })();
+    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); setWeatherDaily(d.weatherDaily || null); } catch (_) { setDailyAuto(false); } })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setConfigured(!!d.configured); } catch (_) { setConfigured(false); } })();
     (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
   }, []);
@@ -137,7 +138,7 @@ export default function SchedulePage() {
           <a href="/post" className="rounded-full border border-sand-200 bg-white px-3 py-1.5 text-xs text-sand-600 hover:bg-brand-50">✏️ 到主題庫設定時段</a>
         </div>
 
-        {view === 'month' && <MonthlyCalendar qItems={qItems} topics={topics} />}
+        {view === 'month' && <MonthlyCalendar qItems={qItems} topics={topics} weatherDaily={weatherDaily} />}
 
         {view === 'week' && (<>
         <p className="text-[11px] text-sand-400">時段設定在各主題上(內容發文 → 建立主題 → 每個主題的「🗓 每週發文時段」)。這裡是唯讀總覽,cron 每天照此自動產文並排入下方佇列。</p>
@@ -290,7 +291,7 @@ export default function SchedulePage() {
 }
 
 // 當月排程表:月曆呈現。連動「實際佇列項目(已排/已發)」＋「未來每週預定(主題 schedule 投影)」
-function MonthlyCalendar({ qItems, topics }) {
+function MonthlyCalendar({ qItems, topics, weatherDaily }) {
   const [offset, setOffset] = useState(0); // 0=本月, +1=次月, -1=上月
   const real = new Date();
   const base = new Date(real.getFullYear(), real.getMonth() + offset, 1);
@@ -323,6 +324,11 @@ function MonthlyCalendar({ qItems, topics }) {
           if (!dup) res.push({ time: s.time, topic: t });
         }
       }
+    }
+    // 每日天氣提醒(如有開啟)
+    if (weatherDaily?.enabled && /^\d{2}:\d{2}$/.test(weatherDaily.time || '')) {
+      const dupWx = actual.some((a) => a.topicName === '天氣提醒');
+      if (!dupWx) res.push({ time: weatherDaily.time, topic: { name: '天氣提醒', type: 'text' } });
     }
     return res.sort((a, b) => a.time.localeCompare(b.time));
   }

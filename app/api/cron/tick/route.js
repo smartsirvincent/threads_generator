@@ -7,6 +7,7 @@ import {
   readWeekly, maybeRefreshThreadsToken,
 } from '@/lib/threads.js';
 import { writePost } from '@/lib/post-writer.js';
+import { makeWeatherPost } from '@/lib/weather.js';
 import { medicalClinicProfile } from '@/lib/verticals.js';
 
 // 依主題綁定的療程排出取用清單(★=3倍),再依 seed 取一個 + 組 context(與前端一致)
@@ -110,6 +111,30 @@ async function run() {
       out.weeklyMaterialized = made;
     }
   } catch (e) { out.weeklyError = String(e.message).slice(0, 200); }
+
+  // ⓪-3 每日定時天氣提醒:到指定時間、當天未發 → 抓「當下天氣」產文並排入(當天發)
+  try {
+    const s3 = await readSettings();
+    const wd = s3.weatherDaily;
+    if (wd && wd.enabled && /^\d{2}:\d{2}$/.test(wd.time || '')) {
+      const today = new Date();
+      const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+      const [hh, mm] = wd.time.split(':').map(Number);
+      const dueMin = (hh || 0) * 60 + (mm || 0);
+      const nowMin = today.getHours() * 60 + today.getMinutes();
+      if (s3.lastWeatherDate !== dateKey && nowMin >= dueMin) {
+        const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
+        const { text } = await makeWeatherPost({ brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic });
+        if (text) {
+          const items0 = await readQueue();
+          items0.push({ id: `wx-${dateKey}`, text, topicId: '', topicName: '天氣提醒', type: 'text', scheduledTs: Date.now(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true });
+          await writeQueue(items0);
+        }
+        await writeSettings({ ...s3, lastWeatherDate: dateKey });
+        out.weatherPosted = !!text;
+      }
+    }
+  } catch (e) { out.weatherError = String(e.message).slice(0, 200); }
 
   // ① 發送到期
   let items = await readQueue();
