@@ -622,12 +622,14 @@ function ScheduleEditor({ topic, onChange }) {
   const sched = topic.schedule || [];
   const [days, setDays] = useState([]);
   const [time, setTime] = useState('12:00');
-  function toggleDay(d) { setDays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
+  const [msg, setMsg] = useState('');
+  function toggleDay(d) { setMsg(''); setDays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
   function add() {
-    if (!days.length || !/^\d{2}:\d{2}$/.test(time)) return;
+    if (!days.length) { setMsg('請先點選星期(一~日),再按加時段'); return; }
+    if (!/^\d{2}:\d{2}$/.test(time)) { setMsg('時間格式不正確'); return; }
     const next = [...sched];
     for (const d of days) if (!next.some((s) => s.weekday === d && s.time === time)) next.push({ weekday: d, time });
-    onChange({ schedule: next }); setDays([]);
+    onChange({ schedule: next }); setDays([]); setMsg('');
   }
   function remove(s) { onChange({ schedule: sched.filter((x) => !(x.weekday === s.weekday && x.time === s.time)) }); }
   const lbl = (d) => (WD.find((w) => w.d === d) || {}).l || '?';
@@ -646,7 +648,8 @@ function ScheduleEditor({ topic, onChange }) {
         <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-[11px]" />
         <button type="button" onClick={add} className="btn-secondary text-xs">＋ 加時段</button>
       </div>
-      {sched.length === 0 && <p className="text-[11px] text-sand-400">尚未設定;設了之後 cron 會在每週指定時段自動用此主題產文發送。</p>}
+      {msg && <p className="text-[11px] text-gold-600">{msg}</p>}
+      <p className="text-[11px] text-sand-400">用法:先點星期(可複選)→ 設時間 → 按「＋ 加時段」。{sched.length === 0 ? '設了之後 cron 會在每週指定時段自動用此主題產文發送。記得按「💾 存檔到雲端」。' : '改完記得按「💾 存檔到雲端」。'}</p>
     </div>
   );
 }

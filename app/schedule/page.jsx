@@ -291,8 +291,12 @@ export default function SchedulePage() {
 
 // 當月排程表:月曆呈現。連動「實際佇列項目(已排/已發)」＋「未來每週預定(主題 schedule 投影)」
 function MonthlyCalendar({ qItems, topics }) {
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth(), todayD = now.getDate();
+  const [offset, setOffset] = useState(0); // 0=本月, +1=次月, -1=上月
+  const real = new Date();
+  const base = new Date(real.getFullYear(), real.getMonth() + offset, 1);
+  const y = base.getFullYear(), m = base.getMonth();
+  const isCurMonth = y === real.getFullYear() && m === real.getMonth();
+  const todayD = isCurMonth ? real.getDate() : -1; // 只有本月才標今天/投影未來
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const startDow = new Date(y, m, 1).getDay(); // 0=日
   const WD = ['日', '一', '二', '三', '四', '五', '六'];
@@ -303,9 +307,11 @@ function MonthlyCalendar({ qItems, topics }) {
     const d = new Date(it.scheduledTs);
     if (d.getFullYear() === y && d.getMonth() === m) (byDate[d.getDate()] ||= []).push(it);
   }
-  // 未來每週預定(主題 schedule 投影到本月各日,排除已有實際項目者)
+  // 未來每週預定(主題 schedule 投影到各日,排除已有實際項目者)。過去月份不投影。
+  const monthIsPast = offset < 0;
   function plannedFor(day) {
-    if (day < todayD) return [];
+    if (monthIsPast) return [];
+    if (isCurMonth && day < todayD) return [];
     const dow = new Date(y, m, day).getDay();
     const actual = byDate[day] || [];
     const res = [];
@@ -330,8 +336,13 @@ function MonthlyCalendar({ qItems, topics }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="font-display text-base font-semibold text-sand-900">{y} 年 {m + 1} 月</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setOffset(offset - 1)} className="rounded-lg border border-sand-200 bg-white px-2 py-1 text-xs text-sand-600 hover:bg-brand-50">← 上月</button>
+          <h3 className="font-display text-base font-semibold text-sand-900">{y} 年 {m + 1} 月</h3>
+          <button type="button" onClick={() => setOffset(offset + 1)} className="rounded-lg border border-sand-200 bg-white px-2 py-1 text-xs text-sand-600 hover:bg-brand-50">下月 →</button>
+          {offset !== 0 && <button type="button" onClick={() => setOffset(0)} className="rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-xs text-brand-700 hover:bg-brand-100">回本月</button>}
+        </div>
         <div className="flex flex-wrap items-center gap-2 text-[10px] text-sand-500">
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-emerald-400" />已發</span>
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-gold-400" />待發</span>
