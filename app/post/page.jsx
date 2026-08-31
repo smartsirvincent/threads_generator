@@ -8,6 +8,12 @@ import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
 const logoCloudCache = {}; // { 原始logoURL: cloudinaryURL }
+const WD_LABEL = { 0: '日', 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
+function scheduleSummary(schedule) {
+  const s = schedule || [];
+  if (!s.length) return '未排程';
+  return s.slice().sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time)).map((x) => `週${WD_LABEL[x.weekday]} ${x.time}`).join('、');
+}
 function firstLogo(profile) {
   const bl = profile?.brand_logos;
   if (Array.isArray(bl)) return bl[0] || '';
@@ -30,6 +36,7 @@ export default function PostPage() {
 
   const [tab, setTab] = useState('library');
   const [topics, setTopics] = useState([]);
+  const [openTopics, setOpenTopics] = useState(new Set()); // 展開的主題(預設全收合)
   const [dirty, setDirty] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [threadsConfigured, setThreadsConfigured] = useState(null);
@@ -88,7 +95,8 @@ export default function PostPage() {
   }
   function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
   function deleteTopic(id) { setTopics((arr) => arr.filter((t) => t.id !== id)); setDirty(true); }
-  function addManualTopic() { setTopics((arr) => [{ id: newId(), type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
+  function addManualTopic() { const id = newId(); setTopics((arr) => [{ id, type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setOpenTopics((s) => new Set(s).add(id)); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
+  function toggleTopic(id) { setOpenTopics((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
   function insertToPrompt(id, field, text) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, [field]: ((t[field] || '').trim() ? (t[field].trim() + '，') : '') + text } : t)); setDirty(true); }
   async function saveTopics() {
     setSaveMsg('儲存中…'); setError('');
@@ -388,47 +396,64 @@ export default function PostPage() {
               提示詞方向靈感:{DIRECTIONS.join('、')}。可插入變數:療程名＋價格、5,000 醫美券、逐句翻譯、自有醫師、曼谷順遊等(見各欄下方按鈕)。提示詞寫成「方向＋多個可選角度」最好,不要寫死固定開場/結尾,系列才不會每篇都一樣。
             </p>
             {topics.length === 0 && <p className="text-xs text-sand-400">還沒有主題,用上方「AI 推薦」或「手動新增主題」建立。</p>}
-            <div className="space-y-3">
-              {topics.map((t) => (
-                <div key={t.id} className="rounded-2xl border border-sand-200 p-3 space-y-2">
-                  {/* 型別 + 名稱 + 啟用 + 刪除 */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select className="input w-auto py-1.5 text-xs" value={t.type} onChange={(e) => updateTopic(t.id, { type: e.target.value })}>
-                      {TYPES.map((ty) => <option key={ty.key} value={ty.key}>{ty.emoji} {ty.label}</option>)}
-                    </select>
-                    <input className="input flex-1 min-w-[140px] text-sm" value={t.name} placeholder="主題名稱(≤10字)" onChange={(e) => updateTopic(t.id, { name: e.target.value })} />
-                    <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={t.enabled !== false} onChange={(e) => updateTopic(t.id, { enabled: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />啟用</label>
-                    <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={!!t.culture} onChange={(e) => updateTopic(t.id, { culture: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🇹🇭 純文化</label>
-                    <button type="button" onClick={() => deleteTopic(t.id)} className="rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button>
-                  </div>
-                  {t.culture && <p className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] text-blue-700">🇹🇭 純泰國文化模式:產文只介紹泰國文化/旅遊,不談產品/品牌/療程/優惠(綁定療程不會生效)</p>}
-
-                  {/* 每週發文時段(設在主題上) */}
-                  <ScheduleEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
-
-                  {/* 區分變數:讓同主題每篇聚焦不同具體對象 */}
-                  <VariableEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
-
-                  {/* 綁定療程(整篇文＋圖共用;純文化主題可略) */}
-                  {!t.culture && <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
-
-                  {/* 文案提示詞 */}
-                  <div>
-                    <label className="label text-[11px]">文案提示詞</label>
-                    <textarea className="input min-h-[60px] text-xs" value={t.prompt} placeholder="給產文 AI 的方向與可選角度(不要寫死固定開場/結尾)" onChange={(e) => updateTopic(t.id, { prompt: e.target.value })} />
-                    <InsertBar treatments={treatments} vars={VARS} dirs={DIRECTIONS} onInsert={(text) => insertToPrompt(t.id, 'prompt', text)} />
+            <div className="space-y-2">
+              {topics.map((t) => {
+                const isOpen = openTopics.has(t.id);
+                return (
+                <div key={t.id} className="rounded-2xl border border-sand-200">
+                  {/* 收合列:型別 + 主題 + 發文時間 + 啟用(預設只看這些) */}
+                  <div className="flex items-center gap-2 p-3">
+                    <button type="button" onClick={() => toggleTopic(t.id)} className="shrink-0 text-sand-400 hover:text-brand-600">{isOpen ? '▾' : '▸'}</button>
+                    <span className="shrink-0 rounded-full bg-gold-100 px-2 py-0.5 text-[11px] text-gold-700">{typeMeta(t.type).emoji} {typeMeta(t.type).label}</span>
+                    <button type="button" onClick={() => toggleTopic(t.id)} className="min-w-0 flex-1 text-left">
+                      <span className="text-sm font-medium text-sand-800">{t.name || '(未命名)'}</span>
+                      {t.culture ? <span className="ml-1 text-[11px] text-blue-600">🇹🇭</span> : null}
+                      <span className="ml-2 text-[11px] text-sand-400">🗓 {scheduleSummary(t.schedule)}</span>
+                    </button>
+                    <label className="flex shrink-0 items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={t.enabled !== false} onChange={(e) => updateTopic(t.id, { enabled: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />啟用</label>
+                    <button type="button" onClick={() => deleteTopic(t.id)} className="shrink-0 rounded-lg px-1.5 py-1 text-xs text-red-600 hover:bg-red-50">🗑</button>
                   </div>
 
-                  {/* 圖片提示詞 + LOGO */}
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="label text-[11px]">圖片提示詞(圖片型可用)</label>
-                      <label className="flex items-center gap-1 text-[11px] text-sand-600"><input type="checkbox" checked={!!t.useLogo} onChange={(e) => updateTopic(t.id, { useLogo: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🅛 圖片帶 LOGO</label>
+                  {/* 展開:完整編輯 */}
+                  {isOpen && (
+                  <div className="space-y-2 border-t border-sand-100 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select className="input w-auto py-1.5 text-xs" value={t.type} onChange={(e) => updateTopic(t.id, { type: e.target.value })}>
+                        {TYPES.map((ty) => <option key={ty.key} value={ty.key}>{ty.emoji} {ty.label}</option>)}
+                      </select>
+                      <input className="input flex-1 min-w-[140px] text-sm" value={t.name} placeholder="主題名稱(≤10字)" onChange={(e) => updateTopic(t.id, { name: e.target.value })} />
+                      <label className="flex items-center gap-1 text-[11px] text-sand-500"><input type="checkbox" checked={!!t.culture} onChange={(e) => updateTopic(t.id, { culture: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🇹🇭 純文化</label>
                     </div>
-                    <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
+                    {t.culture && <p className="rounded-lg bg-blue-50 px-2 py-1 text-[11px] text-blue-700">🇹🇭 純泰國文化模式:產文只介紹泰國文化/旅遊,不談產品/品牌/療程/優惠(綁定療程不會生效)</p>}
+
+                    <ScheduleEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+                    <VariableEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
+                    {!t.culture && <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
+
+                    <div>
+                      <label className="label text-[11px]">文案提示詞</label>
+                      <textarea className="input min-h-[60px] text-xs" value={t.prompt} placeholder="給產文 AI 的方向與可選角度(不要寫死固定開場/結尾)" onChange={(e) => updateTopic(t.id, { prompt: e.target.value })} />
+                      <InsertBar treatments={treatments} vars={VARS} dirs={DIRECTIONS} onInsert={(text) => insertToPrompt(t.id, 'prompt', text)} />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="label text-[11px]">圖片提示詞(圖片型可用)</label>
+                        <label className="flex items-center gap-1 text-[11px] text-sand-600"><input type="checkbox" checked={!!t.useLogo} onChange={(e) => updateTopic(t.id, { useLogo: e.target.checked })} className="size-3.5 rounded border-sand-300 text-brand-600" />🅛 圖片帶 LOGO</label>
+                      </div>
+                      <textarea className="input min-h-[48px] text-xs" value={t.imagePrompt || ''} placeholder="圖片畫面方向:美麗東方女性搭配療程名稱/特點/價格,不要出現產品或儀器" onChange={(e) => updateTopic(t.id, { imagePrompt: e.target.value })} />
+                    </div>
+
+                    {/* 個別主題存檔 */}
+                    <div className="flex items-center justify-end gap-2 border-t border-sand-100 pt-2">
+                      {saveMsg && <span className="text-[11px] text-emerald-600">{saveMsg}</span>}
+                      <button type="button" onClick={saveTopics} className="btn-primary text-xs">💾 存檔此主題到雲端</button>
+                    </div>
                   </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>
