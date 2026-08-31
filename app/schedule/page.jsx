@@ -34,6 +34,7 @@ export default function SchedulePage() {
   const [sendingId, setSendingId] = useState('');
   const [lightbox, setLightbox] = useState('');
   const [topics, setTopics] = useState([]);
+  const [view, setView] = useState('month'); // 'month' | 'week'
 
   async function loadQueue() {
     setQBusy(true);
@@ -126,15 +127,19 @@ export default function SchedulePage() {
         <p className="mt-2 text-xs">{configured === null ? '　' : configured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設定後才能發文</span>}</p>
       </div>
 
-      {/* 每週排程總覽(由各主題的排程時段匯出;cron 每天照表自動產文) */}
+      {/* 排程總覽:月曆(實際佇列+未來預定連動) / 每週(主題時段) */}
       <div className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-sand-400">Weekly Overview</p>
-            <h2 className="font-display text-lg font-semibold text-sand-900">每週排程 <span className="text-sm font-normal text-sand-500">({wslots.length} 個時段)</span></h2>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setView('month')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'month' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>📅 當月排程表</button>
+            <button type="button" onClick={() => setView('week')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'week' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>🗓 每週總覽</button>
           </div>
           <a href="/post" className="rounded-full border border-sand-200 bg-white px-3 py-1.5 text-xs text-sand-600 hover:bg-brand-50">✏️ 到主題庫設定時段</a>
         </div>
+
+        {view === 'month' && <MonthlyCalendar qItems={qItems} topics={topics} />}
+
+        {view === 'week' && (<>
         <p className="text-[11px] text-sand-400">時段設定在各主題上(內容發文 → 建立主題 → 每個主題的「🗓 每週發文時段」)。這裡是唯讀總覽,cron 每天照此自動產文並排入下方佇列。</p>
 
         {wslots.length === 0 ? (
@@ -167,6 +172,7 @@ export default function SchedulePage() {
             </div>
           </div>
         )}
+        </>)}
       </div>
 
       {/* 佇列管理:依主題篩選 + 分組 + 逐則操作 */}
@@ -280,5 +286,93 @@ export default function SchedulePage() {
         </div>
       )}
     </main>
+  );
+}
+
+// 當月排程表:月曆呈現。連動「實際佇列項目(已排/已發)」＋「未來每週預定(主題 schedule 投影)」
+function MonthlyCalendar({ qItems, topics }) {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth(), todayD = now.getDate();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const startDow = new Date(y, m, 1).getDay(); // 0=日
+  const WD = ['日', '一', '二', '三', '四', '五', '六'];
+
+  // 實際佇列(本月)
+  const byDate = {};
+  for (const it of qItems) {
+    const d = new Date(it.scheduledTs);
+    if (d.getFullYear() === y && d.getMonth() === m) (byDate[d.getDate()] ||= []).push(it);
+  }
+  // 未來每週預定(主題 schedule 投影到本月各日,排除已有實際項目者)
+  function plannedFor(day) {
+    if (day < todayD) return [];
+    const dow = new Date(y, m, day).getDay();
+    const actual = byDate[day] || [];
+    const res = [];
+    for (const t of topics) {
+      if (t.enabled === false) continue;
+      for (const s of (t.schedule || [])) {
+        if (s.weekday === dow && /^\d{2}:\d{2}$/.test(s.time || '')) {
+          const dup = actual.some((a) => a.topicId === t.id && hhmm(a.scheduledTs) === s.time);
+          if (!dup) res.push({ time: s.time, topic: t });
+        }
+      }
+    }
+    return res.sort((a, b) => a.time.localeCompare(b.time));
+  }
+
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+
+  const statusChip = (it) => it.status === 'posted' ? 'border-l-emerald-400' : it.status === 'failed' ? 'border-l-red-400' : slotColor(it.type, it.topicName);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="font-display text-base font-semibold text-sand-900">{y} 年 {m + 1} 月</h3>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-sand-500">
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-emerald-400" />已發</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-gold-400" />待發</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm border border-dashed border-sand-400" />預定</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-[700px]">
+          <div className="grid grid-cols-7 text-center text-[11px] font-medium text-sand-500">
+            {WD.map((w) => <div key={w} className="py-1">{w}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} className="min-h-[86px] rounded-lg bg-sand-50/40" />;
+              const actual = (byDate[day] || []).slice().sort((a, b) => a.scheduledTs - b.scheduledTs);
+              const planned = plannedFor(day);
+              const isToday = day === todayD;
+              return (
+                <div key={i} className={`min-h-[86px] rounded-lg border p-1 ${isToday ? 'border-brand-400 bg-brand-50/40' : 'border-sand-200 bg-white'}`}>
+                  <div className={`mb-0.5 text-[11px] font-medium ${isToday ? 'text-brand-700' : 'text-sand-500'}`}>{day}</div>
+                  <div className="space-y-0.5">
+                    {actual.map((it) => (
+                      <div key={it.id} className={`rounded border-l-2 bg-sand-50 px-1 py-0.5 text-[9px] leading-tight ${statusChip(it)}`} title={`${hhmm(it.scheduledTs)} ${it.topicName || ''}`}>
+                        <span className="text-sand-700">{hhmm(it.scheduledTs)} {it.topicName || '—'}</span>
+                        <span className="ml-0.5 text-sand-400">{TYPE_LABEL[it.type] || ''}</span>
+                      </div>
+                    ))}
+                    {planned.map((p, j) => (
+                      <div key={'p' + j} className={`rounded border-l-2 border-dashed bg-white px-1 py-0.5 text-[9px] leading-tight ${slotColor(p.topic?.type, p.topic?.name)}`} title={`${p.time} ${p.topic?.name || ''}(預定)`}>
+                        <span className="text-sand-500">{p.time} {p.topic?.name || '—'}</span>
+                        <span className="ml-0.5 text-sand-300">{TYPE_LABEL[p.topic?.type] || ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <p className="text-[11px] text-sand-400">實心=實際佇列(已發/待發),虛線=未來每週預定(由主題時段投影,cron 到當天才會實際排入)。</p>
+    </div>
   );
 }
