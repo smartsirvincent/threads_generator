@@ -8,6 +8,17 @@ import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
 const logoCloudCache = {}; // { 原始logoURL: cloudinaryURL }
+// 找一個與 total 互質、約 0.618×total 的步長(黃金比例跳躍→交叉取樣分散、不連續重複)
+function pickStride(total) {
+  if (total <= 2) return 1;
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const base = Math.max(2, Math.round(total * 0.6180339887));
+  for (let k = 0; k < total; k++) {
+    const up = base + k; if (up < total && gcd(up, total) === 1) return up;
+    const dn = base - k; if (dn > 1 && gcd(dn, total) === 1) return dn;
+  }
+  return 1;
+}
 const WD_LABEL = { 0: '日', 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
 function scheduleSummary(schedule) {
   const s = schedule || [];
@@ -203,11 +214,12 @@ export default function PostPage() {
     return [];
   }
   function comboCount(dims) { return dims.reduce((a, d) => a * Math.max(1, (d.values || []).length), 1); }
-  // 交叉組合:把索引 idx 解成各維度各取一個值(混合進位)
+  // 交叉組合:用「與總數互質的大步長」跳躍取樣,連續兩篇每個維度都跳開(不會連續同食物)
   function crossCombo(dims, idx) {
     if (!dims.length) return { label: '', value: '' };
     const total = comboCount(dims);
-    let rem = ((idx % total) + total) % total;
+    const stride = pickStride(total);
+    let rem = ((((idx * stride) % total) + total) % total);
     const labels = [], values = [];
     for (const d of dims) { const len = Math.max(1, (d.values || []).length); const vi = rem % len; rem = Math.floor(rem / len); labels.push(d.label); values.push((d.values || [])[vi]); }
     return { label: labels.join('×'), value: values.filter(Boolean).join(' · ') };

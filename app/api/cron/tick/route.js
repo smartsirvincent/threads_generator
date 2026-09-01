@@ -16,10 +16,21 @@ function activeDimsOf(topic) {
   if (topic?.variables?.length) return [{ label: topic.varLabel || '對象', values: topic.variables }];
   return [];
 }
+function pickStride(total) {
+  if (total <= 2) return 1;
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const base = Math.max(2, Math.round(total * 0.6180339887));
+  for (let k = 0; k < total; k++) {
+    const up = base + k; if (up < total && gcd(up, total) === 1) return up;
+    const dn = base - k; if (dn > 1 && gcd(dn, total) === 1) return dn;
+  }
+  return 1;
+}
 function crossCombo(dims, idx) {
   if (!dims.length) return { label: '', value: '' };
   const total = dims.reduce((a, d) => a * Math.max(1, (d.values || []).length), 1);
-  let rem = ((idx % total) + total) % total;
+  const stride = pickStride(total);
+  let rem = ((((idx * stride) % total) + total) % total);
   const labels = [], values = [];
   for (const d of dims) { const len = Math.max(1, (d.values || []).length); const vi = rem % len; rem = Math.floor(rem / len); labels.push(d.label); values.push((d.values || [])[vi]); }
   return { label: labels.join('×'), value: values.filter(Boolean).join(' · ') };
