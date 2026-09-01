@@ -661,16 +661,29 @@ export default function PostPage() {
 // 區分變數:AI 建議 2-3 個維度(varOptions)供勾選;選中的維度 → varLabel + variables,產文時輪值
 function VariableEditor({ topic, onChange }) {
   const [nv, setNv] = useState('');
+  const [busy, setBusy] = useState(false);
   const vars = topic.variables || [];
   const options = topic.varOptions || [];
   function add() { const v = nv.trim(); if (v && !vars.includes(v)) onChange({ variables: [...vars, v] }); setNv(''); }
   function remove(v) { onChange({ variables: vars.filter((x) => x !== v) }); }
   function pickOption(o) { onChange({ varLabel: o.label, variables: [...(o.values || [])] }); }
+  async function suggest() {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/post/variables', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: topic.name, prompt: topic.prompt, culture: !!topic.culture }) });
+      const d = await r.json();
+      if (d.varOptions?.length) { const first = d.varOptions[0]; onChange({ varOptions: d.varOptions, varLabel: first.label, variables: [...(first.values || [])] }); }
+    } catch (_) {} finally { setBusy(false); }
+  }
   return (
     <div className="rounded-xl border border-gold-200 bg-gold-50/40 p-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-sand-700">🔀 區分變數{options.length ? '(點下方維度套用)' : ''}</span>
+        <button type="button" onClick={suggest} disabled={busy} className="rounded-lg border border-brand-300 bg-brand-50 px-2 py-0.5 text-[11px] text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? '產生中…' : '✨ 讓 AI 建議變數'}</button>
+      </div>
       {options.length > 0 && (
         <div className="space-y-1">
-          <span className="text-[11px] font-medium text-sand-700">🔀 AI 建議的變數維度(點一個套用)</span>
+          <span className="text-[11px] font-medium text-sand-700">AI 建議的維度(點一個套用)</span>
           <div className="flex flex-wrap gap-1">
             {options.map((o, i) => {
               const active = (topic.varLabel || '') === o.label;
