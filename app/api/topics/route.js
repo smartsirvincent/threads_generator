@@ -48,6 +48,10 @@ export async function POST(req) {
           label: String(o.label).slice(0, 20),
           values: Array.isArray(o.values) ? o.values.filter(Boolean).map((v) => String(v).slice(0, 40)).slice(0, 20) : [],
         })) : [],
+        activeDims: Array.isArray(t.activeDims) ? t.activeDims.filter((o) => o && o.label && Array.isArray(o.values) && o.values.length).slice(0, 3).map((o) => ({
+          label: String(o.label).slice(0, 20),
+          values: o.values.filter(Boolean).map((v) => String(v).slice(0, 40)).slice(0, 20),
+        })) : [],
         schedule: Array.isArray(t.schedule) ? t.schedule.filter((s) => s && Number.isInteger(s.weekday) && s.weekday >= 0 && s.weekday <= 6 && /^\d{2}:\d{2}$/.test(s.time || '')).slice(0, 30).map((s) => ({ weekday: s.weekday, time: s.time })) : [],
         treatments: Array.isArray(t.treatments) ? t.treatments.filter(Boolean).map(String).slice(0, 30) : [],
         starred: Array.isArray(t.starred) ? t.starred.filter(Boolean).map(String).slice(0, 30) : [],

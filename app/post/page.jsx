@@ -105,7 +105,7 @@ export default function PostPage() {
   function addPicked() {
     const picked = suggestions.filter((s) => s._picked);
     if (!picked.length) return;
-    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, varOptions: s.varOptions || [], varLabel: s.varLabel || '', variables: s.variables || [], enabled: true }))]);
+    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, varOptions: s.varOptions || [], varLabel: s.varLabel || '', variables: s.variables || [], activeDims: (s.variables?.length ? [{ label: s.varLabel || '對象', values: s.variables }] : []), enabled: true }))]);
     setSuggestions([]); setDirty(true); setSaveMsg('已加入,記得按「存檔到雲端」');
   }
   function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
@@ -196,6 +196,23 @@ export default function PostPage() {
     return decorateImageUrl(fd.url, { cropAr: sd.cloudinaryAr, logoUrl: topic.useLogo ? (logoUrl || '') : '' });
   }
 
+  // 區分變數:取用中的維度(可多個→交叉組合)
+  function getActiveDims(topic) {
+    if (topic?.activeDims?.length) return topic.activeDims;
+    if (topic?.variables?.length) return [{ label: topic.varLabel || '對象', values: topic.variables }];
+    return [];
+  }
+  function comboCount(dims) { return dims.reduce((a, d) => a * Math.max(1, (d.values || []).length), 1); }
+  // 交叉組合:把索引 idx 解成各維度各取一個值(混合進位)
+  function crossCombo(dims, idx) {
+    if (!dims.length) return { label: '', value: '' };
+    const total = comboCount(dims);
+    let rem = ((idx % total) + total) % total;
+    const labels = [], values = [];
+    for (const d of dims) { const len = Math.max(1, (d.values || []).length); const vi = rem % len; rem = Math.floor(rem / len); labels.push(d.label); values.push((d.values || [])[vi]); }
+    return { label: labels.join('×'), value: values.filter(Boolean).join(' · ') };
+  }
+
   // ---- 批次產文 ----
   const selected = topics.find((t) => t.id === selId);
   async function generateBatch() {
@@ -215,10 +232,10 @@ export default function PostPage() {
         const i = cursor++;
         const tp = pickList.length ? pickList[(seedBase + i) % pickList.length] : null;
         const treatmentContext = buildTreatmentContext(selected, tp);
-        const varValues = selected.variables || [];
-        const variableValue = varValues.length ? varValues[(seedBase + i) % varValues.length] : '';
+        const combo = crossCombo(getActiveDims(selected), seedBase + i);
+        const variableValue = combo.value;
         try {
-          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, varLabel: selected.varLabel || '', variableValue, ...ctx, clinic }) });
+          const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, varLabel: combo.label, variableValue, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
           results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: wantImages && r.ok, imgErr: '', variableValue };
@@ -522,12 +539,11 @@ export default function PostPage() {
                     <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: true })))} className="text-xs text-sand-500 hover:underline">全選</button>
                     <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: false })))} className="text-xs text-sand-500 hover:underline">全不選</button>
                   </div>
-                  {selected?.variables?.length > 0 && (
+                  {getActiveDims(selected).length > 0 && (() => { const dims = getActiveDims(selected); const cc = comboCount(dims); return (
                     <div className="rounded-xl bg-gold-50/60 px-3 py-2 text-[11px] text-sand-600">
-                      🔀 本次區分變數【{selected.varLabel || '對象'}】共 {selected.variables.length} 個,輪替帶入:
-                      <span className="text-sand-700">{selected.variables.join('、')}</span>
+                      🔀 本次變數:{dims.map((d) => `${d.label}(${d.values.length})`).join(' × ')} → <strong className="text-brand-700">{cc} 種組合</strong>,每篇取一種不同組合。
                     </div>
-                  )}
+                  ); })()}
                   <div className="space-y-2">
                     {gens.map((g, i) => (
                       <div key={g.id} className={`rounded-2xl border p-3 ${g.keep ? 'border-brand-300 bg-brand-50/40' : 'border-sand-200 opacity-70'}`}>
@@ -660,58 +676,51 @@ export default function PostPage() {
 
 // 區分變數:AI 建議 2-3 個維度(varOptions)供勾選;選中的維度 → varLabel + variables,產文時輪值
 function VariableEditor({ topic, onChange }) {
-  const [nv, setNv] = useState('');
   const [busy, setBusy] = useState(false);
-  const vars = topic.variables || [];
   const options = topic.varOptions || [];
-  function add() { const v = nv.trim(); if (v && !vars.includes(v)) onChange({ variables: [...vars, v] }); setNv(''); }
-  function remove(v) { onChange({ variables: vars.filter((x) => x !== v) }); }
-  function pickOption(o) { onChange({ varLabel: o.label, variables: [...(o.values || [])] }); }
+  const dims = topic.activeDims?.length ? topic.activeDims : (topic.variables?.length ? [{ label: topic.varLabel || '對象', values: topic.variables }] : []);
+  const combos = dims.reduce((a, d) => a * Math.max(1, (d.values || []).length), dims.length ? 1 : 0);
+  function isActive(o) { return dims.some((d) => d.label === o.label); }
+  function toggleDim(o) {
+    const on = isActive(o);
+    const next = on ? dims.filter((d) => d.label !== o.label) : [...dims, { label: o.label, values: [...(o.values || [])] }];
+    onChange({ activeDims: next, varLabel: next[0]?.label || '', variables: next[0]?.values || [] });
+  }
   async function suggest() {
     setBusy(true);
     try {
       const r = await fetch('/api/post/variables', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: topic.name, prompt: topic.prompt, culture: !!topic.culture }) });
       const d = await r.json();
-      if (d.varOptions?.length) { const first = d.varOptions[0]; onChange({ varOptions: d.varOptions, varLabel: first.label, variables: [...(first.values || [])] }); }
+      if (d.varOptions?.length) { const first = d.varOptions[0]; onChange({ varOptions: d.varOptions, activeDims: [{ label: first.label, values: [...(first.values || [])] }], varLabel: first.label, variables: [...(first.values || [])] }); }
     } catch (_) {} finally { setBusy(false); }
   }
   return (
     <div className="rounded-xl border border-gold-200 bg-gold-50/40 p-2 space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium text-sand-700">🔀 區分變數{options.length ? '(點下方維度套用)' : ''}</span>
+        <span className="text-[11px] font-medium text-sand-700">🔀 區分變數(可複選多個維度→交叉組合)</span>
         <button type="button" onClick={suggest} disabled={busy} className="rounded-lg border border-brand-300 bg-brand-50 px-2 py-0.5 text-[11px] text-brand-700 hover:bg-brand-100 disabled:opacity-50">{busy ? '產生中…' : '✨ 讓 AI 建議變數'}</button>
       </div>
-      {options.length > 0 && (
-        <div className="space-y-1">
-          <span className="text-[11px] font-medium text-sand-700">AI 建議的維度(點一個套用)</span>
-          <div className="flex flex-wrap gap-1">
-            {options.map((o, i) => {
-              const active = (topic.varLabel || '') === o.label;
-              return (
-                <button key={i} type="button" onClick={() => pickOption(o)} title={(o.values || []).join('、')}
-                  className={`rounded-full border px-2 py-0.5 text-[11px] ${active ? 'border-brand-400 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-600 hover:bg-brand-50'}`}>
-                  {active ? '✓ ' : ''}{o.label}（{(o.values || []).length}）
-                </button>
-              );
-            })}
-          </div>
+      {options.length === 0 ? (
+        <p className="text-[11px] text-sand-400">尚無變數維度。按「✨ 讓 AI 建議變數」產生 2-3 個維度。</p>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {options.map((o, i) => {
+            const active = isActive(o);
+            return (
+              <button key={i} type="button" onClick={() => toggleDim(o)} title={(o.values || []).join('、')}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${active ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-600 hover:bg-brand-50'}`}>
+                {active ? '✓ ' : ''}{o.label}（{(o.values || []).length}）
+              </button>
+            );
+          })}
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[11px] font-medium text-sand-700">目前維度</span>
-        <input className="input flex-1 py-1 text-xs" value={topic.varLabel || ''} placeholder="維度名稱(例:捷運站、療程項目)" onChange={(e) => onChange({ varLabel: e.target.value })} />
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {vars.map((v) => (
-          <span key={v} className="flex items-center gap-1 rounded-full border border-sand-200 bg-white px-2 py-0.5 text-[11px] text-sand-700">{v}<button type="button" onClick={() => remove(v)} className="text-sand-400 hover:text-red-600">✕</button></span>
-        ))}
-        {vars.length === 0 && <span className="text-[11px] text-sand-400">尚無變數值(點上面 AI 建議維度套用,或在下方手動加)</span>}
-      </div>
-      <div className="flex gap-1">
-        <input className="input flex-1 py-1 text-xs" value={nv} placeholder="新增一個值,按 Enter" onChange={(e) => setNv(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
-        <button type="button" onClick={add} className="btn-secondary text-xs">＋</button>
-      </div>
-      <p className="text-[11px] text-sand-400">產文時每篇輪一個不同的值深入寫。目前 {vars.length} 個值 → 可產出約 {vars.length || '—'} 種不同對象的貼文。</p>
+      {dims.length > 0 && (
+        <p className="text-[11px] text-sand-500">
+          已選 {dims.length} 個維度({dims.map((d) => `${d.label}×${(d.values || []).length}`).join(' × ')})
+          → <strong className="text-brand-700">可交叉出 {combos} 種組合</strong>(建議「產幾則」填到 {combos})。
+        </p>
+      )}
     </div>
   );
 }

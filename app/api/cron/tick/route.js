@@ -10,6 +10,21 @@ import { writePost } from '@/lib/post-writer.js';
 import { makeWeatherPost } from '@/lib/weather.js';
 import { medicalClinicProfile } from '@/lib/verticals.js';
 
+// 區分變數交叉組合(與前端一致)
+function activeDimsOf(topic) {
+  if (topic?.activeDims?.length) return topic.activeDims;
+  if (topic?.variables?.length) return [{ label: topic.varLabel || '對象', values: topic.variables }];
+  return [];
+}
+function crossCombo(dims, idx) {
+  if (!dims.length) return { label: '', value: '' };
+  const total = dims.reduce((a, d) => a * Math.max(1, (d.values || []).length), 1);
+  let rem = ((idx % total) + total) % total;
+  const labels = [], values = [];
+  for (const d of dims) { const len = Math.max(1, (d.values || []).length); const vi = rem % len; rem = Math.floor(rem / len); labels.push(d.label); values.push((d.values || [])[vi]); }
+  return { label: labels.join('×'), value: values.filter(Boolean).join(' · ') };
+}
+
 // 依主題綁定的療程排出取用清單(★=3倍),再依 seed 取一個 + 組 context(與前端一致)
 function weeklyTreatmentContext(topic, products, seed) {
   const names = topic?.treatments || []; const starred = topic?.starred || [];
@@ -99,9 +114,8 @@ async function run() {
           const [hh, mm] = String(time).split(':').map(Number);
           const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
           const tc = weeklyTreatmentContext(topic, products, dow + seed);
-          const vars = topic.variables || [];
-          const variableValue = vars.length ? vars[(dow + seed) % vars.length] : '';
-          const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
+          const combo = crossCombo(activeDimsOf(topic), dow + seed);
+          const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: combo.label, variableValue: combo.value });
           if (text) { items.push({ id: `wk-${dateKey}-${topic.id}-${time.replace(':', '')}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
           seed++;
         }
@@ -158,9 +172,8 @@ async function run() {
       const topic = await pickTopic(topics, token);
       if (topic) {
         const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
-        const vars = topic.variables || [];
-        const variableValue = vars.length ? vars[Math.floor(now / 86400000) % vars.length] : '';
-        const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, culture: !!topic.culture, varLabel: topic.varLabel || '', variableValue });
+        const combo = crossCombo(activeDimsOf(topic), Math.floor(now / 86400000));
+        const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, culture: !!topic.culture, varLabel: combo.label, variableValue: combo.value });
         if (text) {
           items = await readQueue();
           items.push({ id: `auto-${now}`, text, topicId: topic.id || '', topicName: topic.name, type: topic.type, scheduledTs: now, status: 'pending', mediaId: '', permalink: '', error: '', auto: true });
