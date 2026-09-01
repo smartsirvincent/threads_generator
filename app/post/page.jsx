@@ -134,7 +134,7 @@ export default function PostPage() {
   }
 
   // 提示詞可插入的療程(帶價)、變數、方向靈感
-  const treatments = (profile.products || []).filter((p) => p && p.name).map((p) => ({ name: p.name, price: p.promo_offer || '' }));
+  const treatments = (profile.products || []).filter((p) => p && p.name && p.include_in_image_gen !== false).map((p) => ({ name: p.name, price: p.promo_offer || '' }));
   const VARS = ['每人 5,000 醫美券直接抵', '逐句翻譯零溝通障礙', '回台後 LINE 隨時問', '自有醫師不是租的', '曼谷景點順遊', '術後照護提醒'];
   const DIRECTIONS = ['破除迷思', '真實心得', '價格划算', '適合誰/不適合', '術後照護', '曼谷順遊', '閨蜜見證', '諮詢常見問答'];
 
@@ -142,7 +142,8 @@ export default function PostPage() {
   function buildTreatmentPickList(topic) {
     const names = topic?.treatments || [];
     const starred = topic?.starred || [];
-    const prods = names.map((nm) => (profile.products || []).find((p) => p.name === nm)).filter(Boolean);
+    // 只用「有啟用(納入生成)」的療程
+    const prods = names.map((nm) => (profile.products || []).find((p) => p.name === nm)).filter((p) => p && p.include_in_image_gen !== false);
     if (!prods.length) return [];
     const list = [];
     for (const p of prods) { const w = starred.includes(p.name) ? 3 : 1; for (let k = 0; k < w; k++) list.push(p); }
@@ -488,7 +489,7 @@ export default function PostPage() {
 
                     <ScheduleEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
                     <VariableEditor topic={t} onChange={(patch) => updateTopic(t.id, patch)} />
-                    {!t.culture && <TreatmentBinder allProducts={profile.products || []} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
+                    {!t.culture && <TreatmentBinder allProducts={(profile.products || []).filter((p) => p.include_in_image_gen !== false)} topic={t} onChange={(patch) => updateTopic(t.id, patch)} />}
 
                     <div>
                       <label className="label text-[11px]">文案提示詞</label>

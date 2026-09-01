@@ -42,7 +42,7 @@ const TEXT_MODES = [
 export default function MaterialPage({ heading }) {
   // 預設用內建 BEST FRIEND;若雲端固定槽有存檔(價格/療程有改過)就自動覆蓋 → 跨裝置一致
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
-  const treatments = (profile.products || []).filter((p) => p?.name);
+  const treatments = (profile.products || []).filter((p) => p?.name && p.include_in_image_gen !== false); // 只用有啟用(納入生成)的療程
 
   useEffect(() => {
     (async () => {

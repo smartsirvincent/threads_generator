@@ -39,7 +39,7 @@ function crossCombo(dims, idx) {
 // 依主題綁定的療程排出取用清單(★=3倍),再依 seed 取一個 + 組 context(與前端一致)
 function weeklyTreatmentContext(topic, products, seed) {
   const names = topic?.treatments || []; const starred = topic?.starred || [];
-  const prods = names.map((n) => products.find((p) => p.name === n)).filter(Boolean);
+  const prods = names.map((n) => products.find((p) => p.name === n)).filter((p) => p && p.include_in_image_gen !== false);
   if (!prods.length) return '';
   const list = []; for (const p of prods) { const w = starred.includes(p.name) ? 3 : 1; for (let k = 0; k < w; k++) list.push(p); }
   const p = list[seed % list.length]; if (!p) return '';
