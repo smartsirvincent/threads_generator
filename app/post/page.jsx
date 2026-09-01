@@ -60,6 +60,7 @@ export default function PostPage() {
   const [genProg, setGenProg] = useState({ done: 0, total: 0 });
   const [startDate, setStartDate] = useState(todayStr());
   const [timeSlots, setTimeSlots] = useState(['12:00', '20:00']);
+  const [weekdays, setWeekdays] = useState([1, 3, 5]); // 要發文的星期(預設一三五);空=每天
   const [qCursor, setQCursor] = useState(0); // 排程時段游標,單筆/批次送排程時往後遞延
   const [actMsg, setActMsg] = useState('');
 
@@ -220,7 +221,7 @@ export default function PostPage() {
           const r = await fetch('/api/post/write', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: selected.type, topicName: selected.name, prompt: selected.prompt, variant: seedBase + i, seriesIndex: i + 1, seriesTotal: n, treatmentContext, culture: !!selected.culture, varLabel: selected.varLabel || '', variableValue, ...ctx, clinic }) });
           const d = await r.json();
           const text = r.ok ? (d.text || '') : `⚠ ${d.error || 'HTTP ' + r.status}`;
-          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: wantImages && r.ok, imgErr: '' };
+          results[i] = { id: `g-${i}-${Date.now()}`, text, keep: r.ok, imageUrl: '', imgBusy: wantImages && r.ok, imgErr: '', variableValue };
           done++; setGenProg({ done, total: n }); setGens(results.filter(Boolean));
           // 產文時一併產圖:先產文(上面)→ 再依文案內容產圖
           if (wantImages && r.ok && text && !text.startsWith('⚠')) {
@@ -260,19 +261,35 @@ export default function PostPage() {
   function addSlot() { setTimeSlots((arr) => [...arr, '18:00']); }
   function removeSlot(i) { setTimeSlots((arr) => arr.length > 1 ? arr.filter((_, j) => j !== i) : arr); }
 
-  // 依游標往後排出 n 個時段(單筆/批次共用,避免撞在同一時間)
-  function takeSlots(n) {
-    const slots = timeSlots.filter(Boolean);
-    const perDay = Math.max(slots.length, 1);
+  function toggleWeekday(d) { setWeekdays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
+  // 從起始日起,只在「選定星期」的「各時段」排出時段序列(未選星期=每天)
+  function buildSlotSeq(total) {
+    const slots = timeSlots.filter(Boolean).slice().sort();
+    if (!slots.length) slots.push('12:00');
+    const days = weekdays.length ? weekdays : [0, 1, 2, 3, 4, 5, 6];
     const out = [];
-    for (let k = 0; k < n; k++) {
-      const idx = qCursor + k, day = Math.floor(idx / perDay), slot = slots[idx % perDay] || '12:00';
-      const base = new Date(`${startDate}T${slot}:00`);
-      base.setDate(base.getDate() + day);
-      out.push(base.getTime());
+    const cur = new Date(`${startDate}T00:00:00`);
+    let guard = 0;
+    while (out.length < total && guard < 800) {
+      if (days.includes(cur.getDay())) {
+        for (const s of slots) {
+          const [hh, mm] = s.split(':').map(Number);
+          const dt = new Date(cur); dt.setHours(hh || 12, mm || 0, 0, 0);
+          if (dt.getTime() >= Date.now() - 60000) out.push(dt.getTime());
+          if (out.length >= total) break;
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+      guard++;
     }
-    setQCursor(qCursor + n);
     return out;
+  }
+  // 依游標往後取 n 個時段(單筆/批次共用,避免撞同一時間)
+  function takeSlots(n) {
+    const seq = buildSlotSeq(qCursor + n);
+    const picked = seq.slice(qCursor, qCursor + n);
+    setQCursor(qCursor + n);
+    return picked.length ? picked : seq.slice(0, n); // 保底
   }
 
   const gmeta = () => ({ topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '' });
@@ -505,11 +522,17 @@ export default function PostPage() {
                     <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: true })))} className="text-xs text-sand-500 hover:underline">全選</button>
                     <button type="button" onClick={() => setGens((a) => a.map((g) => ({ ...g, keep: false })))} className="text-xs text-sand-500 hover:underline">全不選</button>
                   </div>
+                  {selected?.variables?.length > 0 && (
+                    <div className="rounded-xl bg-gold-50/60 px-3 py-2 text-[11px] text-sand-600">
+                      🔀 本次區分變數【{selected.varLabel || '對象'}】共 {selected.variables.length} 個,輪替帶入:
+                      <span className="text-sand-700">{selected.variables.join('、')}</span>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {gens.map((g, i) => (
                       <div key={g.id} className={`rounded-2xl border p-3 ${g.keep ? 'border-brand-300 bg-brand-50/40' : 'border-sand-200 opacity-70'}`}>
                         <div className="mb-1 flex items-center justify-between">
-                          <label className="flex items-center gap-2 text-xs text-sand-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-sand-300 text-brand-600" />第 {i + 1} 則 <span className={g.text.length > 500 ? 'text-red-600' : 'text-sand-400'}>({g.text.length}/500)</span></label>
+                          <label className="flex items-center gap-2 text-xs text-sand-600"><input type="checkbox" checked={g.keep} onChange={(e) => updateGen(g.id, { keep: e.target.checked })} className="size-4 rounded border-sand-300 text-brand-600" />第 {i + 1} 則 {g.variableValue ? <span className="rounded-full bg-gold-100 px-1.5 text-[10px] text-gold-700">🔀 {g.variableValue}</span> : null} <span className={g.text.length > 500 ? 'text-red-600' : 'text-sand-400'}>({g.text.length}/500)</span></label>
                         </div>
                         <textarea className="input min-h-[90px] text-sm" value={g.text} onChange={(e) => updateGen(g.id, { text: e.target.value })} />
                         {g.imgBusy && <p className="mt-2 text-xs text-brand-600">🖼 依文案產圖中…(約 30-60 秒)</p>}
@@ -526,12 +549,22 @@ export default function PostPage() {
                     ))}
                   </div>
 
-                  {/* 排程設定(時段用挑的,不用填) + 批次動作 */}
+                  {/* 排程設定:選週幾 + 幾點,從起始日往後排 */}
                   <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
+                    <div>
+                      <label className="label text-xs">發文星期(可複選;不選=每天)</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[{ d: 1, l: '一' }, { d: 2, l: '二' }, { d: 3, l: '三' }, { d: 4, l: '四' }, { d: 5, l: '五' }, { d: 6, l: '六' }, { d: 0, l: '日' }].map(({ d, l }) => (
+                          <button key={d} type="button" onClick={() => toggleWeekday(d)} className={`rounded-full border px-2.5 py-1 text-xs ${weekdays.includes(d) ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{l}</button>
+                        ))}
+                        <button type="button" onClick={() => setWeekdays([1, 2, 3, 4, 5])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">平日</button>
+                        <button type="button" onClick={() => setWeekdays([])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">每天</button>
+                      </div>
+                    </div>
                     <div className="flex flex-wrap items-end gap-4">
                       <div><label className="label text-xs">起始日期</label><input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
                       <div className="flex-1 min-w-[220px]">
-                        <label className="label text-xs">每天發文時段(挑選,幾個=每天幾則)</label>
+                        <label className="label text-xs">發文時段(每天可多個)</label>
                         <div className="flex flex-wrap items-center gap-2">
                           {timeSlots.map((s, i) => (
                             <span key={i} className="flex items-center gap-1 rounded-xl border border-sand-200 bg-white pl-2 pr-1 py-1">
@@ -543,7 +576,7 @@ export default function PostPage() {
                         </div>
                       </div>
                     </div>
-                    <p className="text-[11px] text-sand-400">批次動作依「已勾選」的則數,從起始日期起、每天照上面時段依序排入。單則也可用各則自己的按鈕處理。</p>
+                    <p className="text-[11px] text-sand-400">送排程時,依「已勾選」則數,從起始日起只在「選定星期」的各時段依序排入(例:一三五 × 12:00,20:00)。單則也可用各則按鈕處理。</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
                       <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 已勾選立即發</button>
