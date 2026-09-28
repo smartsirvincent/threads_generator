@@ -72,8 +72,6 @@ export default function PostPage() {
   const [genBusy, setGenBusy] = useState(false);
   const [genProg, setGenProg] = useState({ done: 0, total: 0 });
   const [startDate, setStartDate] = useState(todayStr());
-  const [timeSlots, setTimeSlots] = useState(['12:00', '20:00']);
-  const [weekdays, setWeekdays] = useState([1, 3, 5]); // 要發文的星期(預設一三五);空=每天
   const [qCursor, setQCursor] = useState(0); // 排程時段游標,單筆/批次送排程時往後遞延
   const [actMsg, setActMsg] = useState('');
 
@@ -297,57 +295,35 @@ export default function PostPage() {
   function removeGen(id) { genResultsRef.current = genResultsRef.current.filter((x) => !x || x.id !== id); setGens((arr) => arr.filter((g) => g.id !== id)); }
   const kept = gens.filter((g) => g.keep && g.text.trim() && !g.text.startsWith('⚠'));
 
-  // 時段設定
-  function updateSlot(i, v) { setTimeSlots((arr) => arr.map((s, j) => j === i ? v : s)); }
-  function addSlot() { setTimeSlots((arr) => [...arr, '18:00']); }
-  function removeSlot(i) { setTimeSlots((arr) => arr.length > 1 ? arr.filter((_, j) => j !== i) : arr); }
-
-  function toggleWeekday(d) { setWeekdays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
-  // 把目前的「發文星期 × 時段」設回選定主題的每週發文時段(單一來源),並存雲端
-  async function saveScheduleToTopic() {
-    if (!selected) { setError('請先選一個主題'); return; }
-    const days = weekdays.length ? weekdays : [0, 1, 2, 3, 4, 5, 6];
-    const slots = timeSlots.filter(Boolean);
-    const schedule = [];
-    for (const d of days) for (const t of slots) schedule.push({ weekday: d, time: t });
-    const next = topics.map((x) => x.id === selected.id ? { ...x, schedule } : x);
-    setTopics(next); setDirty(true);
-    setActMsg('回存主題中…');
-    try {
-      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topics: next }) });
-      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
-      setDirty(false); setActMsg(`✓ 已把「${selected.name}」的每週時段設為 ${schedule.length} 個(排程頁月曆同步)`);
-    } catch (e) { setActMsg(''); setError('回存失敗:' + e.message); }
-  }
-  // 從起始日起,只在「選定星期」的「各時段」排出時段序列(未選星期=每天)
+  // 排程時段一律取自「主題的每週時段」(單一來源,在排程頁週排程器設定)
+  const topicSlots = (selected?.schedule || []).filter((s) => /^\d{2}:\d{2}$/.test(s.time || ''));
+  // 從起始日起,依主題的每週時段排出時段序列
   function buildSlotSeq(total) {
-    const slots = timeSlots.filter(Boolean).slice().sort();
-    if (!slots.length) slots.push('12:00');
-    const days = weekdays.length ? weekdays : [0, 1, 2, 3, 4, 5, 6];
     const out = [];
+    if (!topicSlots.length) return out;
     const cur = new Date(`${startDate}T00:00:00`);
     let guard = 0;
     while (out.length < total && guard < 800) {
-      if (days.includes(cur.getDay())) {
-        for (const s of slots) {
-          const [hh, mm] = s.split(':').map(Number);
-          const dt = new Date(cur); dt.setHours(hh || 12, mm || 0, 0, 0);
-          if (dt.getTime() >= Date.now() - 60000) out.push(dt.getTime());
-          if (out.length >= total) break;
-        }
+      const todays = topicSlots.filter((s) => s.weekday === cur.getDay()).map((s) => s.time).sort();
+      for (const tm of todays) {
+        const [hh, mm] = tm.split(':').map(Number);
+        const dt = new Date(cur); dt.setHours(hh || 12, mm || 0, 0, 0);
+        if (dt.getTime() >= Date.now() - 60000) out.push(dt.getTime());
+        if (out.length >= total) break;
       }
       cur.setDate(cur.getDate() + 1);
       guard++;
     }
     return out;
   }
-  // 依游標往後取 n 個時段(單筆/批次共用,避免撞同一時間)
+  // 依游標往後取 n 個時段(單筆/批次共用,避免撞同一時間);主題未排程則回空陣列
   function takeSlots(n) {
     const seq = buildSlotSeq(qCursor + n);
     const picked = seq.slice(qCursor, qCursor + n);
     setQCursor(qCursor + n);
-    return picked.length ? picked : seq.slice(0, n); // 保底
+    return picked.length ? picked : seq.slice(0, n);
   }
+  const NO_SCHED_MSG = '此主題還沒有每週時段——請到「🗓 排程」頁的週排程器把它排到週幾幾點,再送排程。';
 
   const gmeta = () => ({ topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '' });
   function badGen(g) { return !g.text.trim() || g.text.startsWith('⚠'); }
@@ -356,6 +332,7 @@ export default function PostPage() {
   async function queueOne(g, meta, ts) {
     if (badGen(g)) { setError('這則內容無效,無法排程'); return false; }
     const when = ts || takeSlots(1)[0];
+    if (!when) { setError(NO_SCHED_MSG); return false; }
     try {
       const r = await fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'add', items: [{ text: g.text, imageUrl: g.imageUrl || '', ...(meta || gmeta()), scheduledTs: when }] }) });
       if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
@@ -380,6 +357,7 @@ export default function PostPage() {
   // 批次:全部送排程
   async function sendToQueue() {
     if (!kept.length) { setError('沒有勾選要送的貼文'); return; }
+    if (!topicSlots.length) { setError(NO_SCHED_MSG); return; }
     setActMsg('送排程中…'); setError('');
     try {
       const ts = takeSlots(kept.length);
@@ -554,7 +532,7 @@ export default function PostPage() {
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
-                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(!!(t && (t.type === 'image' || (t.imagePrompt || '').trim()))); const sch = t?.schedule || []; if (sch.length) { setWeekdays([...new Set(sch.map((s) => s.weekday))]); setTimeSlots([...new Set(sch.map((s) => s.time))].sort()); } }}>
+                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(!!(t && (t.type === 'image' || (t.imagePrompt || '').trim()))); setQCursor(0); }}>
                     <option value="">選一個主題…</option>
                     {TYPES.map((ty) => { const g = topics.filter((t) => t.type === ty.key && t.enabled !== false); return g.length ? <optgroup key={ty.key} label={`${ty.emoji} ${ty.label}`}>{g.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null; })}
                   </select>
@@ -609,39 +587,24 @@ export default function PostPage() {
                     ))}
                   </div>
 
-                  {/* 排程設定:選週幾 + 幾點,從起始日往後排 */}
+                  {/* 排程:一律沿用主題的每週時段(單一來源,在排程頁週排程器設定) */}
                   <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
-                    <p className="rounded-lg bg-brand-50/60 px-2 py-1.5 text-[11px] text-sand-600">🗓 以下星期/時段已從此主題的「每週發文時段」帶入(單一設定來源)。在這改只影響這批;要永久改請按下方「回存主題」,或到「建立主題」調整。</p>
-                    <div>
-                      <label className="label text-xs">發文星期(可複選;不選=每天)</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[{ d: 1, l: '一' }, { d: 2, l: '二' }, { d: 3, l: '三' }, { d: 4, l: '四' }, { d: 5, l: '五' }, { d: 6, l: '六' }, { d: 0, l: '日' }].map(({ d, l }) => (
-                          <button key={d} type="button" onClick={() => toggleWeekday(d)} className={`rounded-full border px-2.5 py-1 text-xs ${weekdays.includes(d) ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{l}</button>
-                        ))}
-                        <button type="button" onClick={() => setWeekdays([1, 2, 3, 4, 5])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">平日</button>
-                        <button type="button" onClick={() => setWeekdays([])} className="rounded-full border border-dashed border-sand-300 px-2.5 py-1 text-xs text-sand-500 hover:bg-brand-50">每天</button>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-medium text-sand-700">🗓 依此主題的每週時段排入</p>
+                        {topicSlots.length ? (
+                          <p className="mt-0.5 text-[11px] text-brand-700">{scheduleSummary(topicSlots)}</p>
+                        ) : (
+                          <p className="mt-0.5 text-[11px] text-gold-700">⚠ 此主題尚未排程——請先到排程頁排到週幾幾點,才能「送排程」。</p>
+                        )}
                       </div>
+                      <a href="/schedule" className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs text-brand-700 hover:bg-brand-50">✏️ 到排程頁調整時段</a>
                     </div>
-                    <div className="flex flex-wrap items-end gap-4">
-                      <div><label className="label text-xs">起始日期</label><input type="date" className="input text-sm" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
-                      <div className="flex-1 min-w-[220px]">
-                        <label className="label text-xs">發文時段(每天可多個)</label>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {timeSlots.map((s, i) => (
-                            <span key={i} className="flex items-center gap-1 rounded-xl border border-sand-200 bg-white pl-2 pr-1 py-1">
-                              <input type="time" value={s} onChange={(e) => updateSlot(i, e.target.value)} className="bg-transparent text-sm text-sand-800 outline-none" />
-                              {timeSlots.length > 1 && <button type="button" onClick={() => removeSlot(i)} className="rounded px-1 text-xs text-sand-400 hover:text-red-600">✕</button>}
-                            </span>
-                          ))}
-                          <button type="button" onClick={addSlot} className="rounded-xl border border-dashed border-brand-300 px-2.5 py-1 text-xs text-brand-600 hover:bg-brand-50">＋ 加時段</button>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-sand-400">送排程時,依「已勾選」則數,從起始日起只在「選定星期」的各時段依序排入(例:一三五 × 12:00,20:00)。單則也可用各則按鈕處理。</p>
+                    <div><label className="label text-xs">從哪天開始排</label><input type="date" className="input w-auto text-sm" value={startDate} onChange={(e) => { setStartDate(e.target.value); setQCursor(0); }} /></div>
+                    <p className="text-[11px] text-sand-400">送排程時,依「已勾選」則數,從起始日起依主題的每週時段依序排入。時段只在排程頁設定一次,這裡自動沿用。</p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
+                      <button type="button" onClick={sendToQueue} disabled={!kept.length || !topicSlots.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
                       <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 已勾選立即發</button>
-                      <button type="button" onClick={saveScheduleToTopic} className="rounded-lg border border-brand-300 bg-brand-50 px-2.5 py-1 text-xs text-brand-700 hover:bg-brand-100">💾 回存主題(把此星期/時段設回主題)</button>
                       {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
                     </div>
                   </div>
@@ -657,20 +620,13 @@ export default function PostPage() {
           <h2 className="font-display text-sm font-semibold text-sand-800">🌤 預約發文 · 曼谷天氣提醒</h2>
           <p className="text-xs text-sand-500">串接曼谷當天天氣(氣溫／濕度／紫外線／降雨),自動產出「注意事項＋保養／術後照護」貼文。可立即發或預約時間發。</p>
 
-          {/* 每天定時自動發(cron 到時抓當下天氣) */}
-          <div className="rounded-2xl border border-brand-200 bg-brand-50/50 p-3 space-y-2">
-            <label className="flex flex-wrap items-center gap-2 text-sm text-sand-700">
-              <input type="checkbox" checked={wxDailyOn} onChange={(e) => saveWeatherDaily(e.target.checked, wxDailyTime)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
-              🕗 每天自動發天氣提醒
-              <span className="flex items-center gap-1 text-xs text-sand-500">於
-                <input type="time" value={wxDailyTime} onChange={(e) => setWxDailyTime(e.target.value)} onBlur={(e) => { if (wxDailyOn) saveWeatherDaily(true, e.target.value); }} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-xs" />
-              </span>
-              {wxDailyMsg && <span className="text-xs text-emerald-700">{wxDailyMsg}</span>}
-            </label>
-            <p className="text-[11px] text-sand-400">開啟後,cron 每天到指定時間會**抓當下的天氣**即時產文並發送(顯示在排程月曆)。需外部 cron 每小時打 /api/cron/tick。</p>
+          {/* 每日自動天氣已統一到排程頁設定(單一來源) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-blue-200 bg-blue-50/50 px-3 py-2 text-xs text-sand-600">
+            <span>🕗 每天自動發天氣:{wxDailyOn ? <strong className="text-blue-700">已開啟,每天 {wxDailyTime}</strong> : '未開啟'}(統一在排程頁設定)</span>
+            <a href="/schedule" className="rounded-full border border-blue-300 bg-white px-3 py-1 text-xs text-blue-700 hover:bg-blue-50">到排程頁設定</a>
           </div>
 
-          <p className="text-xs font-medium text-sand-600">或,手動產一則:</p>
+          <p className="text-xs font-medium text-sand-600">手動產一則天氣提醒:</p>
           <button type="button" onClick={genWeatherPost} disabled={wxBusy} className="btn-primary text-sm disabled:opacity-50">{wxBusy ? '產生中…' : '🌤 抓天氣並產文'}</button>
           {wxMsg && <p className="text-xs text-emerald-700">{wxMsg}</p>}
 

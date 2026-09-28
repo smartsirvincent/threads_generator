@@ -34,7 +34,8 @@ export default function SchedulePage() {
   const [sendingId, setSendingId] = useState('');
   const [lightbox, setLightbox] = useState('');
   const [topics, setTopics] = useState([]);
-  const [view, setView] = useState('month'); // 'month' | 'week'
+  const [view, setView] = useState('week'); // 'week'(可編輯週排程器) | 'month'
+  const [schedMsg, setSchedMsg] = useState('');
   const [weatherDaily, setWeatherDaily] = useState(null);
 
   async function loadQueue() {
@@ -48,6 +49,40 @@ export default function SchedulePage() {
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setConfigured(!!d.configured); } catch (_) { setConfigured(false); } })();
     (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
   }, []);
+
+  // 週排程器:改主題的每週時段(單一來源)→ 存雲端
+  async function saveTopicsNow(next, msg) {
+    setTopics(next); setSchedMsg('儲存中…');
+    try {
+      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topics: next }) });
+      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
+      setSchedMsg(msg || '✓ 已儲存'); setTimeout(() => setSchedMsg(''), 2500);
+    } catch (e) { setSchedMsg('✗ ' + e.message); }
+  }
+  function addSlotToTopic(topicId, weekday, time) {
+    const next = topics.map((t) => {
+      if (t.id !== topicId) return t;
+      const sch = t.schedule || [];
+      if (sch.some((s) => s.weekday === weekday && s.time === time)) return t;
+      return { ...t, schedule: [...sch, { weekday, time }] };
+    });
+    const tp = topics.find((t) => t.id === topicId);
+    saveTopicsNow(next, `✓ 已把「${tp?.name || ''}」排到 ${WEEK.find((w) => w.d === weekday)?.label} ${time}`);
+  }
+  function removeSlotFromTopic(topicId, weekday, time) {
+    const next = topics.map((t) => t.id !== topicId ? t : { ...t, schedule: (t.schedule || []).filter((s) => !(s.weekday === weekday && s.time === time)) });
+    saveTopicsNow(next, '✓ 已移除該時段');
+  }
+  function moveTimeRow(fromTime, toTime) {
+    if (!/^\d{2}:\d{2}$/.test(toTime) || fromTime === toTime) return;
+    const next = topics.map((t) => ({ ...t, schedule: (t.schedule || []).map((s) => s.time === fromTime ? { ...s, time: toTime } : s) }));
+    saveTopicsNow(next, `✓ 已把 ${fromTime} 的時段改到 ${toTime}`);
+  }
+  async function saveWeatherDaily(wd) {
+    setWeatherDaily(wd);
+    try { await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weatherDaily: wd }) }); setSchedMsg(wd.enabled ? `✓ 每天 ${wd.time} 自動發天氣` : '✓ 已關閉每日天氣'); setTimeout(() => setSchedMsg(''), 2500); }
+    catch (e) { setSchedMsg('✗ ' + e.message); }
+  }
 
   async function toggleDailyAuto(v) {
     setDailyAuto(v);
@@ -94,18 +129,6 @@ export default function SchedulePage() {
 
   const pending = useMemo(() => qItems.filter((x) => x.status === 'pending').sort((a, b) => a.scheduledTs - b.scheduledTs), [qItems]);
 
-  // 每週排程:由各「主題」的 schedule 匯出成 時間列 × 星期欄 的格子(唯讀總覽)
-  const wslots = useMemo(() => {
-    const arr = [];
-    for (const t of topics) for (const s of (t.schedule || [])) if (/^\d{2}:\d{2}$/.test(s.time || '')) arr.push({ time: s.time, weekday: s.weekday, topic: t });
-    return arr;
-  }, [topics]);
-  const times = useMemo(() => [...new Set(wslots.map((s) => s.time))].sort(), [wslots]);
-  const slotAt = useMemo(() => {
-    const m = {};
-    for (const s of wslots) { const k = `${s.time}|${s.weekday}`; (m[k] ||= []).push(s); }
-    return m;
-  }, [wslots]);
   const todayDow = new Date().getDay();
 
   // 佇列依主題分組(可篩選)
@@ -124,56 +147,32 @@ export default function SchedulePage() {
     <main className="space-y-6">
       <div className="card border-brand-200 bg-brand-50/40">
         <h1 className="font-display text-2xl font-semibold text-sand-900">🗓 排程</h1>
-        <p className="mt-2 text-sm text-sand-600">看每週要發哪些主題、管理待發佇列(可依主題篩選、逐則編輯/刪除/立即發送)。到期貼文由外部 cron 每小時自動發;你也可以在這裡一篇一篇手動發。</p>
+        <p className="mt-2 text-sm text-sand-600">排程中心:在「週排程」把主題排到每週幾、幾點(唯一設定處,改了自動存、主題庫同步)→ cron 每天照表自動產文發送 → 「當月月曆」看全貌 → 下方佇列管理實際待發貼文。</p>
         <p className="mt-2 text-xs">{configured === null ? '　' : configured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設定後才能發文</span>}</p>
       </div>
 
-      {/* 排程總覽:月曆(實際佇列+未來預定連動) / 每週(主題時段) */}
+      {/* 排程中心:可編輯週排程器(單一來源=主題每週時段) / 當月月曆 */}
       <div className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setView('month')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'month' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>📅 當月排程表</button>
-            <button type="button" onClick={() => setView('week')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'week' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>🗓 每週總覽</button>
+            <button type="button" onClick={() => setView('week')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'week' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>🗓 週排程(編輯)</button>
+            <button type="button" onClick={() => setView('month')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'month' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>📅 當月月曆</button>
           </div>
-          <a href="/post" className="rounded-full border border-sand-200 bg-white px-3 py-1.5 text-xs text-sand-600 hover:bg-brand-50">✏️ 到主題庫設定時段</a>
+          {schedMsg && <span className="text-xs text-emerald-700">{schedMsg}</span>}
         </div>
 
-        {view === 'month' && <MonthlyCalendar qItems={qItems} topics={topics} weatherDaily={weatherDaily} />}
-
-        {view === 'week' && (<>
-        <p className="text-[11px] text-sand-400">時段設定在各主題上(內容發文 → 建立主題 → 每個主題的「🗓 每週發文時段」)。這裡是唯讀總覽,cron 每天照此自動產文並排入下方佇列。</p>
-
-        {wslots.length === 0 ? (
-          <p className="text-xs text-sand-400">還沒有任何主題設定每週時段。到「內容發文 → 建立主題」,在主題卡的「🗓 每週發文時段」加時段並存檔。</p>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border border-sand-200">
-            <div className="min-w-[760px]">
-              <div className="grid grid-cols-8 border-b border-sand-200 bg-sand-50 py-2 text-[11px] font-medium text-sand-500">
-                <div className="px-3">時間</div>
-                {WEEK.map(({ d, label }) => <div key={d} className={`px-2 ${d === todayDow ? 'font-semibold text-brand-700' : ''}`}>{label}{d === todayDow ? ' ·今天' : ''}</div>)}
-              </div>
-              {times.map((tm) => (
-                <div key={tm} className="grid grid-cols-8 items-start border-b border-sand-100 py-2 last:border-0">
-                  <div className="px-3 pt-1 text-xs font-medium text-sand-500">{tm}</div>
-                  {WEEK.map(({ d }) => (
-                    <div key={d} className={`px-1.5 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
-                      {(slotAt[`${tm}|${d}`] || []).map((s, idx) => {
-                        const tp = s.topic;
-                        return (
-                          <div key={idx} className={`mb-1 rounded-md border border-l-4 border-sand-200 bg-white px-2 py-1.5 shadow-soft ${slotColor(tp?.type, tp?.name)}`}>
-                            <span className="text-[11px] font-medium leading-tight text-sand-800">{tp?.name || '—'}</span>
-                            <span className="mt-0.5 block"><span className="inline-block rounded bg-sand-100 px-1 text-[9px] text-sand-500">{TYPE_LABEL[tp?.type] || '—'}</span></span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
+        {view === 'week' && (
+          <WeeklyScheduler
+            topics={topics}
+            todayDow={todayDow}
+            weatherDaily={weatherDaily}
+            onAdd={addSlotToTopic}
+            onRemove={removeSlotFromTopic}
+            onMoveTime={moveTimeRow}
+            onWeather={saveWeatherDaily}
+          />
         )}
-        </>)}
+        {view === 'month' && <MonthlyCalendar qItems={qItems} topics={topics} weatherDaily={weatherDaily} />}
       </div>
 
       {/* 佇列管理:依主題篩選 + 分組 + 逐則操作 */}
@@ -390,6 +389,110 @@ function MonthlyCalendar({ qItems, topics, weatherDaily }) {
         </div>
       </div>
       <p className="text-[11px] text-sand-400">實心=實際佇列(已發/待發),虛線=未來每週預定(由主題時段投影,cron 到當天才會實際排入)。</p>
+    </div>
+  );
+}
+
+// 可編輯週排程器:時間 × 星期。格子「＋」選主題即排入(寫回該主題 schedule),✕ 移除;時間可改;可新增時段列;含每日天氣列
+function WeeklyScheduler({ topics, todayDow, weatherDaily, onAdd, onRemove, onMoveTime, onWeather }) {
+  const [extraTimes, setExtraTimes] = useState([]);
+  const [newTime, setNewTime] = useState('12:00');
+  const [picker, setPicker] = useState(null);   // { weekday, time }
+  const [editTime, setEditTime] = useState(null); // { from, to }
+  const enabledTopics = topics.filter((t) => t.enabled !== false && t.name);
+
+  const slotMap = {};
+  const timeSet = new Set(extraTimes);
+  for (const t of topics) for (const s of (t.schedule || [])) {
+    if (!/^\d{2}:\d{2}$/.test(s.time || '')) continue;
+    timeSet.add(s.time);
+    (slotMap[`${s.time}|${s.weekday}`] ||= []).push(t);
+  }
+  const times = [...timeSet].sort();
+  const totalSlots = Object.values(slotMap).reduce((a, x) => a + x.length, 0);
+  const wd = weatherDaily || { enabled: false, time: '08:00' };
+
+  function addTimeRow() {
+    if (!/^\d{2}:\d{2}$/.test(newTime) || times.includes(newTime)) return;
+    setExtraTimes((a) => [...a, newTime]);
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-sand-500">
+        在格子裡按「＋」選主題就排進去,✕ 移除;點時間可改整列時段。<strong className="text-sand-700">這裡就是每個主題的每週發文時段(唯一設定來源)</strong>,改了自動存,主題庫、月曆、主題產文都同步。cron 每天照這張表自動產文發送。
+      </p>
+
+      {/* 每日天氣(特別列) */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/50 px-3 py-2 text-sm text-sand-700">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={!!wd.enabled} onChange={(e) => onWeather({ enabled: e.target.checked, time: wd.time || '08:00' })} className="size-4 rounded border-sand-300 text-brand-600" />
+          🌤 每天自動發天氣提醒
+        </label>
+        <input type="time" value={wd.time || '08:00'} onChange={(e) => onWeather({ enabled: !!wd.enabled, time: e.target.value })} className="rounded-lg border border-sand-200 bg-white px-1.5 py-0.5 text-xs" />
+        <span className="text-[11px] text-sand-400">到點抓當下曼谷天氣產文(不需選主題)</span>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-sand-200">
+        <div className="min-w-[840px]">
+          <div className="grid grid-cols-8 border-b border-sand-200 bg-sand-50 py-2 text-[11px] font-medium text-sand-500">
+            <div className="px-3">時間</div>
+            {WEEK.map(({ d, label }) => <div key={d} className={`px-2 ${d === todayDow ? 'font-semibold text-brand-700' : ''}`}>{label}{d === todayDow ? ' ·今天' : ''}</div>)}
+          </div>
+
+          {times.length === 0 && (
+            <div className="px-3 py-6 text-center text-xs text-sand-400">還沒有任何時段。先在下方「新增時段列」加一個時間(例 12:00),再到格子按「＋」選主題。</div>
+          )}
+
+          {times.map((tm) => (
+            <div key={tm} className="grid grid-cols-8 items-start border-b border-sand-100 py-2 last:border-0">
+              <div className="px-2 pt-1">
+                {editTime?.from === tm ? (
+                  <input type="time" autoFocus value={editTime.to}
+                    onChange={(e) => setEditTime({ from: tm, to: e.target.value })}
+                    onBlur={() => { onMoveTime(tm, editTime.to); setExtraTimes((a) => a.map((x) => x === tm ? editTime.to : x)); setEditTime(null); }}
+                    className="w-20 rounded border border-brand-300 px-1 text-xs" />
+                ) : (
+                  <button type="button" onClick={() => setEditTime({ from: tm, to: tm })} title="改這一列的時間" className="text-xs font-medium text-sand-600 hover:text-brand-700">{tm} ✎</button>
+                )}
+              </div>
+              {WEEK.map(({ d }) => {
+                const list = slotMap[`${tm}|${d}`] || [];
+                const isPick = picker && picker.weekday === d && picker.time === tm;
+                const available = enabledTopics.filter((t) => !list.some((x) => x.id === t.id));
+                return (
+                  <div key={d} className={`min-h-[44px] space-y-1 px-1 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
+                    {list.map((tp) => (
+                      <div key={tp.id} className={`group flex items-start justify-between gap-1 rounded-md border border-l-4 border-sand-200 bg-white px-1.5 py-1 shadow-soft ${slotColor(tp.type, tp.name)}`}>
+                        <span className="text-[11px] font-medium leading-tight text-sand-800">{tp.name}<span className="ml-1 text-[9px] text-sand-400">{TYPE_LABEL[tp.type] || ''}</span></span>
+                        <button type="button" onClick={() => onRemove(tp.id, d, tm)} title="移除" className="shrink-0 text-[11px] text-sand-300 hover:text-red-600">✕</button>
+                      </div>
+                    ))}
+                    {isPick ? (
+                      <div className="flex items-center gap-1">
+                        <select autoFocus className="w-full rounded border border-brand-300 bg-white px-1 py-0.5 text-[11px]" defaultValue=""
+                          onChange={(e) => { if (e.target.value) onAdd(e.target.value, d, tm); setPicker(null); }}>
+                          <option value="">選主題…</option>
+                          {available.map((t) => <option key={t.id} value={t.id}>{TYPE_LABEL[t.type] || ''}｜{t.name}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setPicker(null)} className="text-[11px] text-sand-400">✕</button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setPicker({ weekday: d, time: tm })} className="w-full rounded-md border border-dashed border-sand-200 py-0.5 text-[11px] text-sand-300 hover:border-brand-300 hover:text-brand-600">＋</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="rounded-lg border border-sand-200 px-1.5 py-1 text-xs" />
+        <button type="button" onClick={addTimeRow} className="rounded-lg border border-dashed border-brand-300 px-2.5 py-1 text-xs text-brand-600 hover:bg-brand-50">＋ 新增時段列</button>
+        <span className="text-[11px] text-sand-400">目前共 {totalSlots} 個每週排程時段 · {enabledTopics.length} 個啟用主題可排</span>
+      </div>
     </div>
   );
 }
