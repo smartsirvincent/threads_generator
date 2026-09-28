@@ -134,6 +134,12 @@ export default function PostPage() {
       setDirty(false); setSaveMsg(`✓ 已存 ${d.count} 個主題`); setTimeout(() => setSaveMsg(''), 2500);
     } catch (e) { setSaveMsg(''); setError('存檔失敗:' + e.message); }
   }
+  // 自動存檔:主題有改動後 1.5 秒自動存雲端,避免忘記按存檔而遺失排程/變數設定
+  useEffect(() => {
+    if (!dirty) return;
+    const id = setTimeout(() => { saveTopics(); }, 1500);
+    return () => clearTimeout(id);
+  }, [topics, dirty]);
 
   // 提示詞可插入的療程(帶價)、變數、方向靈感
   const treatments = (profile.products || []).filter((p) => p && p.name && p.include_in_image_gen !== false).map((p) => ({ name: p.name, price: p.promo_offer || '' }));
@@ -469,9 +475,9 @@ export default function PostPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-sm font-semibold text-sand-800">2. 我的主題庫 <span className="font-normal text-sand-500">({topics.length})</span></h2>
               <div className="flex items-center gap-2">
-                {saveMsg && <span className="text-xs text-emerald-600">{saveMsg}</span>}
+                {saveMsg ? <span className="text-xs text-emerald-600">{saveMsg}</span> : <span className="text-[11px] text-sand-400">{dirty ? '有改動,即將自動存…' : '✓ 已同步(改動自動存)'}</span>}
                 <button type="button" onClick={addManualTopic} className="btn-secondary text-xs">＋ 手動新增主題</button>
-                <button type="button" onClick={saveTopics} disabled={!dirty} className="btn-primary text-xs disabled:opacity-40">💾 存檔到雲端{dirty ? ' *' : ''}</button>
+                <button type="button" onClick={saveTopics} disabled={!dirty} className="btn-primary text-xs disabled:opacity-40">💾 立即存檔{dirty ? ' *' : ''}</button>
               </div>
             </div>
             <p className="rounded-xl bg-sand-50 px-3 py-2 text-[11px] leading-relaxed text-sand-500">
