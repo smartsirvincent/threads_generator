@@ -292,6 +292,22 @@ export default function PostPage() {
   function removeSlot(i) { setTimeSlots((arr) => arr.length > 1 ? arr.filter((_, j) => j !== i) : arr); }
 
   function toggleWeekday(d) { setWeekdays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
+  // 把目前的「發文星期 × 時段」設回選定主題的每週發文時段(單一來源),並存雲端
+  async function saveScheduleToTopic() {
+    if (!selected) { setError('請先選一個主題'); return; }
+    const days = weekdays.length ? weekdays : [0, 1, 2, 3, 4, 5, 6];
+    const slots = timeSlots.filter(Boolean);
+    const schedule = [];
+    for (const d of days) for (const t of slots) schedule.push({ weekday: d, time: t });
+    const next = topics.map((x) => x.id === selected.id ? { ...x, schedule } : x);
+    setTopics(next); setDirty(true);
+    setActMsg('回存主題中…');
+    try {
+      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topics: next }) });
+      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
+      setDirty(false); setActMsg(`✓ 已把「${selected.name}」的每週時段設為 ${schedule.length} 個(排程頁月曆同步)`);
+    } catch (e) { setActMsg(''); setError('回存失敗:' + e.message); }
+  }
   // 從起始日起,只在「選定星期」的「各時段」排出時段序列(未選星期=每天)
   function buildSlotSeq(total) {
     const slots = timeSlots.filter(Boolean).slice().sort();
@@ -527,7 +543,7 @@ export default function PostPage() {
             <>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[200px]"><label className="label text-xs">選主題</label>
-                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(!!(t && (t.type === 'image' || (t.imagePrompt || '').trim()))); }}>
+                  <select className="input text-sm" value={selId} onChange={(e) => { const id = e.target.value; setSelId(id); setGens([]); const t = topics.find((x) => x.id === id); setGenImages(!!(t && (t.type === 'image' || (t.imagePrompt || '').trim()))); const sch = t?.schedule || []; if (sch.length) { setWeekdays([...new Set(sch.map((s) => s.weekday))]); setTimeSlots([...new Set(sch.map((s) => s.time))].sort()); } }}>
                     <option value="">選一個主題…</option>
                     {TYPES.map((ty) => { const g = topics.filter((t) => t.type === ty.key && t.enabled !== false); return g.length ? <optgroup key={ty.key} label={`${ty.emoji} ${ty.label}`}>{g.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup> : null; })}
                   </select>
@@ -580,6 +596,7 @@ export default function PostPage() {
 
                   {/* 排程設定:選週幾 + 幾點,從起始日往後排 */}
                   <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
+                    <p className="rounded-lg bg-brand-50/60 px-2 py-1.5 text-[11px] text-sand-600">🗓 以下星期/時段已從此主題的「每週發文時段」帶入(單一設定來源)。在這改只影響這批;要永久改請按下方「回存主題」,或到「建立主題」調整。</p>
                     <div>
                       <label className="label text-xs">發文星期(可複選;不選=每天)</label>
                       <div className="flex flex-wrap gap-1.5">
@@ -609,6 +626,7 @@ export default function PostPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={sendToQueue} disabled={!kept.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
                       <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 已勾選立即發</button>
+                      <button type="button" onClick={saveScheduleToTopic} className="rounded-lg border border-brand-300 bg-brand-50 px-2.5 py-1 text-xs text-brand-700 hover:bg-brand-100">💾 回存主題(把此星期/時段設回主題)</button>
                       {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
                     </div>
                   </div>
@@ -699,6 +717,10 @@ function VariableEditor({ topic, onChange }) {
     const next = on ? dims.filter((d) => d.label !== o.label) : [...dims, { label: o.label, values: [...(o.values || [])] }];
     onChange({ activeDims: next, varLabel: next[0]?.label || '', variables: next[0]?.values || [] });
   }
+  function updateDimValues(label, values) {
+    const next = dims.map((d) => d.label === label ? { ...d, values } : d);
+    onChange({ activeDims: next, varLabel: next[0]?.label || '', variables: next[0]?.values || [] });
+  }
   async function suggest() {
     setBusy(true);
     try {
@@ -729,11 +751,37 @@ function VariableEditor({ topic, onChange }) {
         </div>
       )}
       {dims.length > 0 && (
-        <p className="text-[11px] text-sand-500">
-          已選 {dims.length} 個維度({dims.map((d) => `${d.label}×${(d.values || []).length}`).join(' × ')})
-          → <strong className="text-brand-700">可交叉出 {combos} 種組合</strong>(建議「產幾則」填到 {combos})。
-        </p>
+        <>
+          <p className="text-[11px] text-sand-500">
+            已選 {dims.length} 個維度 → <strong className="text-brand-700">可交叉出 {combos} 種組合</strong>(建議「產幾則」填到 {combos})。下面可刪除/新增各維度的值。
+          </p>
+          <div className="space-y-1.5">
+            {dims.map((d) => <DimValues key={d.label} dim={d} onUpdate={(vals) => updateDimValues(d.label, vals)} />)}
+          </div>
+        </>
       )}
+    </div>
+  );
+}
+
+// 單一維度的值:可刪除(✕)/ 新增
+function DimValues({ dim, onUpdate }) {
+  const [nv, setNv] = useState('');
+  const values = dim.values || [];
+  function add() { const v = nv.trim(); if (v && !values.includes(v)) onUpdate([...values, v]); setNv(''); }
+  return (
+    <div className="rounded-lg border border-sand-200 bg-white p-1.5">
+      <div className="text-[11px] font-medium text-sand-700">{dim.label}（{values.length}）</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {values.map((v) => (
+          <span key={v} className="flex items-center gap-1 rounded-full border border-sand-200 bg-sand-50 px-1.5 py-0.5 text-[11px] text-sand-700">{v}<button type="button" onClick={() => onUpdate(values.filter((x) => x !== v))} className="text-sand-400 hover:text-red-600">✕</button></span>
+        ))}
+        {values.length === 0 && <span className="text-[11px] text-sand-400">(已清空,下方可加回)</span>}
+      </div>
+      <div className="mt-1 flex gap-1">
+        <input className="input flex-1 py-0.5 text-[11px]" value={nv} placeholder="新增一個值,按 Enter" onChange={(e) => setNv(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+        <button type="button" onClick={add} className="btn-secondary px-2 text-[11px]">＋</button>
+      </div>
     </div>
   );
 }
