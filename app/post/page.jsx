@@ -1,7 +1,7 @@
 'use client';
 
 // 內容 / 發文:主題庫(3型別+提示詞+存檔) → 依主題批次產文(≤100)→ 勾選送排程 / 立即發。排程與連線各自獨立成頁。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { medicalClinicProfile, CANONICAL_PROFILE_NAME } from '@/lib/verticals.js';
 import { loadCanonicalProfile } from '@/lib/profile-store.js';
 import { decorateImageUrl } from '@/lib/overlay.js';
@@ -64,6 +64,8 @@ export default function PostPage() {
   // produce
   const [selId, setSelId] = useState('');
   const [genImages, setGenImages] = useState(false); // 產文時一併產圖
+  const [withPrice, setWithPrice] = useState(true); // 產文帶療程價格
+  const genResultsRef = useRef([]); // 產文結果來源(編輯時同步,避免產圖完成蓋回原文)
   const [count, setCount] = useState(5);
   const [lightbox, setLightbox] = useState('');
   const [gens, setGens] = useState([]); // [{id,text,keep}]
@@ -150,12 +152,12 @@ export default function PostPage() {
     return list;
   }
   // 依「要帶入哪些變數」把該療程資訊組成文字(給文案/圖片提示詞用)
-  function buildTreatmentContext(topic, p) {
+  function buildTreatmentContext(topic, p, includePrice = true) {
     if (!p) return '';
     const inj = topic.inject || {};
     const parts = [];
     if (inj.name !== false) parts.push(`療程名稱:${p.name}`);
-    if (inj.price !== false && p.promo_offer) parts.push(`價格優惠:${p.promo_offer}`);
+    if (includePrice && inj.price !== false && p.promo_offer) parts.push(`價格優惠:${p.promo_offer}`);
     if (p.features) parts.push(`特點:${p.features}`);
     if (inj.imageFocus !== false && p.image_focus) parts.push(`強化圖片方向:${p.image_focus}`);
     return parts.join('\n');
@@ -232,7 +234,7 @@ export default function PostPage() {
     if (!selected) { setError('請先選一個主題'); return; }
     const n = Math.min(Math.max(Number(count) || 1, 1), 100);
     setGenBusy(true); setError(''); setActMsg(''); setGens([]); setGenProg({ done: 0, total: n });
-    const results = new Array(n).fill(null);
+    const results = genResultsRef.current = new Array(n).fill(null);
     const seedBase = Math.floor(Math.random() * 210); // 每批隨機起點,批間也不同(210=各軸長度 LCM)
     const wantImages = genImages || selected.type === 'image'; // 圖片型主題一定產圖
     const logoUrl = wantImages && selected.useLogo ? await resolveLogo() : '';
@@ -244,7 +246,7 @@ export default function PostPage() {
       while (cursor < n) {
         const i = cursor++;
         const tp = pickList.length ? pickList[(seedBase + i) % pickList.length] : null;
-        const treatmentContext = buildTreatmentContext(selected, tp);
+        const treatmentContext = buildTreatmentContext(selected, tp, withPrice);
         const combo = crossCombo(getActiveDims(selected), seedBase + i);
         const variableValue = combo.value;
         try {
@@ -271,7 +273,10 @@ export default function PostPage() {
     setGens(results.filter(Boolean));
     setGenBusy(false);
   }
-  function updateGen(id, patch) { setGens((arr) => arr.map((g) => g.id === id ? { ...g, ...patch } : g)); }
+  function updateGen(id, patch) {
+    const it = genResultsRef.current.find((x) => x && x.id === id); if (it) Object.assign(it, patch); // 同步回來源,避免被產圖完成覆寫
+    setGens((arr) => arr.map((g) => g.id === id ? { ...g, ...patch } : g));
+  }
   // 單則補產圖(不管上面開關,隨時針對這一則產圖)
   async function makeImage(g) {
     if (badGen(g)) { setError('這則內容無效,無法產圖'); return; }
@@ -283,7 +288,7 @@ export default function PostPage() {
       updateGen(g.id, { imageUrl: url, imgBusy: false });
     } catch (e) { updateGen(g.id, { imgBusy: false, imgErr: String(e.message).slice(0, 140) }); }
   }
-  function removeGen(id) { setGens((arr) => arr.filter((g) => g.id !== id)); }
+  function removeGen(id) { genResultsRef.current = genResultsRef.current.filter((x) => !x || x.id !== id); setGens((arr) => arr.filter((g) => g.id !== id)); }
   const kept = gens.filter((g) => g.keep && g.text.trim() && !g.text.startsWith('⚠'));
 
   // 時段設定
@@ -559,6 +564,10 @@ export default function PostPage() {
                   {brandLogo ? <span className="text-[11px] text-sand-400">· 主題勾 LOGO 會自動蓋上</span> : <span className="text-[11px] text-gold-600">· 未設 LOGO(到「品牌與療程」填)</span>}
                 </label>
               ); })()}
+              <label className={`flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm ${withPrice ? 'border-brand-300 bg-brand-50/60 text-sand-800' : 'border-sand-200 bg-sand-50 text-sand-600'}`}>
+                <input type="checkbox" checked={withPrice} onChange={(e) => setWithPrice(e.target.checked)} className="size-4 rounded border-sand-300 text-brand-600 focus:ring-brand-500" />
+                💲 產文帶入療程價格(關掉則不寫價格,只講療程與感受)
+              </label>
               {selected && <p className="text-[11px] text-sand-500">提示詞:{selected.prompt || '(無)'}</p>}
 
               {gens.length > 0 && (
