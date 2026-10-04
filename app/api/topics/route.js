@@ -82,7 +82,8 @@ export async function POST(req) {
       }
       merged = [...fresh, ...list];
     } else if (Array.isArray(body.topics)) {
-      merged = body.topics;
+      // 舊版分頁(整包覆蓋)會把別處剛設好的排程蓋掉 → 擋下來,請使用者重新整理
+      return NextResponse.json({ error: '這個分頁的版本太舊,存檔會蓋掉其他頁剛設定的排程。請重新整理頁面(Ctrl+F5)後再操作。' }, { status: 409 });
     } else {
       return NextResponse.json({ error: '需要 ops 或 topics' }, { status: 400 });
     }
