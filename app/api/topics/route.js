@@ -7,17 +7,28 @@ export const maxDuration = 30;
 
 const PUBLIC_ID = 'threads-generator/topics/best-friend';
 const PREFIX = 'threads-generator/topics/';
+// 每次存檔前先把「存檔前的內容」備份到另一個槽,誤刪/被覆蓋時可還原
+const BACKUP_ID = 'threads-generator/topics-backup/best-friend-prev';
+const BACKUP_PREFIX = 'threads-generator/topics-backup/';
 
-// 讀雲端目前的主題(POST 合併時也用,確保拿最新版)
-async function readTopics() {
+// 讀雲端某個槽的主題(POST 合併時也用,確保拿最新版)
+async function readSlot(prefix, publicId) {
   if (!hasAdminCloudinary()) return [];
-  const list = await listRawResources({ prefix: PREFIX });
-  const match = list.find((r) => (r.public_id || '').includes('best-friend'));
+  const list = await listRawResources({ prefix });
+  // 必須完全對應,避免抓到備份槽或其他同名開頭的檔案
+  const match = list.find((r) => (r.public_id || '').replace(/\.json$/, '') === publicId);
   if (!match?.secure_url) return [];
   const r = await fetch(match.secure_url, { cache: 'no-store' });
   if (!r.ok) return [];
   const data = await r.json();
   return Array.isArray(data.topics) ? data.topics : [];
+}
+const readTopics = () => readSlot(PREFIX, PUBLIC_ID);
+const readBackup = () => readSlot(BACKUP_PREFIX, BACKUP_ID);
+
+async function writeSlot(publicId, topics) {
+  const buffer = Buffer.from(JSON.stringify({ topics, savedAt: Date.now() }, null, 2), 'utf-8');
+  await uploadRawToCloudinary(buffer, { publicId, filename: 'topics.json', overwrite: true });
 }
 
 function normalize(t) {
@@ -51,9 +62,12 @@ function normalize(t) {
   };
 }
 
-export async function GET() {
+// GET          → 目前的主題庫
+// GET ?backup=1 → 上一次存檔前的備份(誤刪時可查看/還原)
+export async function GET(req) {
   try {
-    return NextResponse.json({ topics: await readTopics() });
+    const wantBackup = new URL(req.url).searchParams.get('backup') === '1';
+    return NextResponse.json({ topics: wantBackup ? await readBackup() : await readTopics(), backup: wantBackup });
   } catch (e) {
     return NextResponse.json({ topics: [], error: e.message });
   }
@@ -68,6 +82,14 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Cloudinary 未設定,無法存主題庫' }, { status: 503 });
     }
     const body = await req.json();
+    // 從備份還原(誤刪時用)
+    if (body.action === 'restoreBackup') {
+      const backup = await readBackup();
+      if (!backup.length) return NextResponse.json({ error: '沒有可用的備份' }, { status: 404 });
+      const restored = backup.filter((t) => t && t.name).map(normalize);
+      await writeSlot(PUBLIC_ID, restored);
+      return NextResponse.json({ ok: true, restored: restored.length, topics: restored });
+    }
     let merged;
     if (Array.isArray(body.ops) || Array.isArray(body.removes)) {
       const cur = await readTopics();
@@ -88,8 +110,12 @@ export async function POST(req) {
       return NextResponse.json({ error: '需要 ops 或 topics' }, { status: 400 });
     }
     const clean = merged.filter((t) => t && t.name).map(normalize);
-    const buffer = Buffer.from(JSON.stringify({ topics: clean, savedAt: Date.now() }, null, 2), 'utf-8');
-    await uploadRawToCloudinary(buffer, { publicId: PUBLIC_ID, filename: 'topics.json', overwrite: true });
+    // 存檔前先備份舊內容(只在舊內容非空時備份,才不會被空檔蓋掉救命備份)
+    try {
+      const before = await readTopics();
+      if (before.length) await writeSlot(BACKUP_ID, before);
+    } catch (_) { /* 備份失敗不擋存檔 */ }
+    await writeSlot(PUBLIC_ID, clean);
     return NextResponse.json({ ok: true, count: clean.length, topics: clean });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
