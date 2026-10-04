@@ -47,15 +47,28 @@ export default function SchedulePage() {
     loadQueue();
     (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); setDailyAuto(!!d.dailyAuto); setWeatherDaily(d.weatherDaily || null); } catch (_) { setDailyAuto(false); } })();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setConfigured(!!d.configured); } catch (_) { setConfigured(false); } })();
-    (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
+    const loadTopics = async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} };
+    loadTopics();
+    // 切回這個分頁時重抓(例如剛在「內容發文」改了主題)
+    const onVis = () => { if (document.visibilityState === 'visible') { loadTopics(); loadQueue(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
   // 週排程器:改主題的每週時段(單一來源)→ 存雲端
   async function saveTopicsNow(next, msg) {
+    // 只送「時段有變」的主題的 schedule 欄位,伺服器合併到雲端最新版(不會蓋掉別頁的改動)
+    const ops = next.filter((t) => {
+      const old = topics.find((o) => o.id === t.id);
+      return JSON.stringify(old?.schedule || []) !== JSON.stringify(t.schedule || []);
+    }).map((t) => ({ id: t.id, fields: { schedule: t.schedule || [] } }));
     setTopics(next); setSchedMsg('儲存中…');
+    if (!ops.length) { setSchedMsg(''); return; }
     try {
-      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topics: next }) });
-      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
+      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ops }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+      if (Array.isArray(d.topics)) setTopics(d.topics);
       setSchedMsg(msg || '✓ 已儲存'); setTimeout(() => setSchedMsg(''), 2500);
     } catch (e) { setSchedMsg('✗ ' + e.message); }
   }

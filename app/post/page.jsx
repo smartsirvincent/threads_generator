@@ -49,6 +49,10 @@ export default function PostPage() {
   const [topics, setTopics] = useState([]);
   const [openTopics, setOpenTopics] = useState(new Set()); // 展開的主題(預設全收合)
   const [dirty, setDirty] = useState(false);
+  const topicsRef = useRef([]); topicsRef.current = topics;
+  const pendingRef = useRef({ ops: {}, news: new Set(), removes: new Set() }); // 待存:{ops:{id:[欄位]}, news:新主題id, removes:刪除id}
+  function markChanged(id, keys) { const p = pendingRef.current; if (p.news.has(id)) return; p.ops[id] = [...new Set([...(p.ops[id] || []), ...keys])]; }
+  function markNew(id) { pendingRef.current.news.add(id); return id; }
   const [saveMsg, setSaveMsg] = useState('');
   const [threadsConfigured, setThreadsConfigured] = useState(null);
   const [error, setError] = useState('');
@@ -89,7 +93,7 @@ export default function PostPage() {
 
   useEffect(() => {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
-    (async () => { try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); setTopics(Array.isArray(d.topics) ? d.topics : []); } catch (_) {} })();
+    refreshTopics();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setThreadsConfigured(!!d.configured); } catch (_) { setThreadsConfigured(false); } })();
     (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); if (d.weatherDaily) { setWxDailyOn(!!d.weatherDaily.enabled); if (d.weatherDaily.time) setWxDailyTime(d.weatherDaily.time); } } catch (_) {} })();
   }, []);
@@ -116,22 +120,67 @@ export default function PostPage() {
   function addPicked() {
     const picked = suggestions.filter((s) => s._picked);
     if (!picked.length) return;
-    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: newId(), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, varOptions: s.varOptions || [], varLabel: s.varLabel || '', variables: s.variables || [], activeDims: (s.variables?.length ? [{ label: s.varLabel || '對象', values: s.variables }] : []), enabled: true }))]);
+    setTopics((arr) => [...arr, ...picked.map((s) => ({ id: markNew(newId()), type: s.type, name: s.name, prompt: s.prompt, culture: !!s.culture, varOptions: s.varOptions || [], varLabel: s.varLabel || '', variables: s.variables || [], activeDims: (s.variables?.length ? [{ label: s.varLabel || '對象', values: s.variables }] : []), enabled: true }))]);
     setSuggestions([]); setDirty(true); setSaveMsg('已加入,記得按「存檔到雲端」');
   }
-  function updateTopic(id, patch) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
-  function deleteTopic(id) { setTopics((arr) => arr.filter((t) => t.id !== id)); setDirty(true); }
-  function addManualTopic() { const id = newId(); setTopics((arr) => [{ id, type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setOpenTopics((s) => new Set(s).add(id)); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
+  function updateTopic(id, patch) { markChanged(id, Object.keys(patch)); setTopics((arr) => arr.map((t) => t.id === id ? { ...t, ...patch } : t)); setDirty(true); }
+  function deleteTopic(id) { const p = pendingRef.current; delete p.ops[id]; p.news.delete(id); p.removes.add(id); setTopics((arr) => arr.filter((t) => t.id !== id)); setDirty(true); }
+  function addManualTopic() { const id = newId(); pendingRef.current.news.add(id); setTopics((arr) => [{ id, type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setOpenTopics((s) => new Set(s).add(id)); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
   function toggleTopic(id) { setOpenTopics((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
-  function insertToPrompt(id, field, text) { setTopics((arr) => arr.map((t) => t.id === id ? { ...t, [field]: ((t[field] || '').trim() ? (t[field].trim() + '，') : '') + text } : t)); setDirty(true); }
+  function insertToPrompt(id, field, text) { markChanged(id, [field]); setTopics((arr) => arr.map((t) => t.id === id ? { ...t, [field]: ((t[field] || '').trim() ? (t[field].trim() + '，') : '') + text } : t)); setDirty(true); }
+  // 只送「有改動的欄位」,伺服器合併到雲端最新版——排程頁/其他分頁的改動不會被這頁的舊資料蓋掉
   async function saveTopics() {
+    const p = pendingRef.current;
+    if (!Object.keys(p.ops).length && !p.news.size && !p.removes.size) { setDirty(false); return; }
+    pendingRef.current = { ops: {}, news: new Set(), removes: new Set() };
+    const cur = topicsRef.current;
+    const ops = [];
+    for (const id of p.news) { const t = cur.find((x) => x.id === id); if (t && (t.name || '').trim()) ops.push({ id, fields: t, isNew: true }); else if (t) pendingRef.current.news.add(id); }
+    for (const [id, keys] of Object.entries(p.ops)) {
+      if (p.news.has(id)) continue;
+      const t = cur.find((x) => x.id === id); if (!t) continue;
+      const fields = {}; for (const k of keys) fields[k] = t[k];
+      ops.push({ id, fields });
+    }
     setSaveMsg('儲存中…'); setError('');
     try {
-      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ topics }) });
+      const r = await fetch('/api/topics', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ops, removes: [...p.removes] }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setDirty(false); setSaveMsg(`✓ 已存 ${d.count} 個主題`); setTimeout(() => setSaveMsg(''), 2500);
-    } catch (e) { setSaveMsg(''); setError('存檔失敗:' + e.message); }
+      if (Array.isArray(d.topics)) mergeServerTopics(d.topics);
+      const left = pendingRef.current;
+      setDirty(!!(Object.keys(left.ops).length || left.removes.size));
+      setSaveMsg(`✓ 已存 ${d.count} 個主題`); setTimeout(() => setSaveMsg(''), 2500);
+    } catch (e) {
+      // 失敗:把改動放回待存清單
+      const q = pendingRef.current;
+      for (const [id, keys] of Object.entries(p.ops)) q.ops[id] = [...new Set([...(q.ops[id] || []), ...keys])];
+      for (const id of p.news) q.news.add(id);
+      for (const id of p.removes) q.removes.add(id);
+      setSaveMsg(''); setError('存檔失敗:' + e.message);
+    }
   }
+  // 用雲端版本更新畫面,但保留這頁還沒存的改動
+  function mergeServerTopics(server) {
+    const q = pendingRef.current;
+    setTopics((local) => {
+      const out = server.filter((t) => !q.removes.has(t.id)).map((t) => {
+        const l = local.find((x) => x.id === t.id);
+        if (!l || !q.ops[t.id]) return t;
+        const m = { ...t }; for (const k of q.ops[t.id]) m[k] = l[k]; return m;
+      });
+      const unsaved = local.filter((l) => q.news.has(l.id) && !out.some((t) => t.id === l.id));
+      return [...unsaved, ...out];
+    });
+  }
+  async function refreshTopics() {
+    try { const r = await fetch('/api/topics', { cache: 'no-store' }); const d = await r.json(); if (Array.isArray(d.topics)) mergeServerTopics(d.topics); } catch (_) {}
+  }
+  // 切回這個分頁時重抓雲端(例如剛在排程頁改了時段)
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === 'visible') refreshTopics(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   // 自動存檔:主題有改動後 1.5 秒自動存雲端,避免忘記按存檔而遺失排程/變數設定
   useEffect(() => {
     if (!dirty) return;
@@ -761,36 +810,30 @@ function DimValues({ dim, onUpdate }) {
 function ScheduleEditor({ topic, onChange }) {
   const WD = [{ d: 1, l: '一' }, { d: 2, l: '二' }, { d: 3, l: '三' }, { d: 4, l: '四' }, { d: 5, l: '五' }, { d: 6, l: '六' }, { d: 0, l: '日' }];
   const sched = topic.schedule || [];
-  const [days, setDays] = useState([]);
-  const [time, setTime] = useState('12:00');
-  const [msg, setMsg] = useState('');
-  function toggleDay(d) { setMsg(''); setDays((a) => a.includes(d) ? a.filter((x) => x !== d) : [...a, d]); }
-  function add() {
-    if (!days.length) { setMsg('請先點選星期(一~日),再按加時段'); return; }
-    if (!/^\d{2}:\d{2}$/.test(time)) { setMsg('時間格式不正確'); return; }
-    const next = [...sched];
-    for (const d of days) if (!next.some((s) => s.weekday === d && s.time === time)) next.push({ weekday: d, time });
-    onChange({ schedule: next }); setDays([]); setMsg('');
+  const [time, setTime] = useState('13:00');
+  const has = (d) => sched.some((s) => s.weekday === d && s.time === time);
+  // 點星期 = 直接在「目前選的時間」加入/取消該時段(自動存檔,不用再按其他鈕)
+  function toggleDay(d) {
+    if (!/^\d{2}:\d{2}$/.test(time)) return;
+    onChange({ schedule: has(d) ? sched.filter((s) => !(s.weekday === d && s.time === time)) : [...sched, { weekday: d, time }] });
   }
   function remove(s) { onChange({ schedule: sched.filter((x) => !(x.weekday === s.weekday && x.time === s.time)) }); }
   const lbl = (d) => (WD.find((w) => w.d === d) || {}).l || '?';
   return (
     <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-2 space-y-2">
-      <span className="text-[11px] font-medium text-sand-700">🗓 每週發文時段(cron 會照表自動產文發送)</span>
-      {sched.length > 0 && (
+      <span className="text-[11px] font-medium text-sand-700">🗓 每週發文時段(和排程頁同步)</span>
+      {sched.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {sched.slice().sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time)).map((s, i) => (
             <span key={i} className="flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] text-brand-700">週{lbl(s.weekday)} {s.time}<button type="button" onClick={() => remove(s)} className="text-sand-400 hover:text-red-600">✕</button></span>
           ))}
         </div>
-      )}
+      ) : <p className="text-[11px] text-gold-600">尚未排時段</p>}
       <div className="flex flex-wrap items-center gap-1.5">
-        {WD.map(({ d, l }) => <button key={d} type="button" onClick={() => toggleDay(d)} className={`rounded-full border px-2 py-0.5 text-[11px] ${days.includes(d) ? 'border-brand-500 bg-brand-100 text-brand-800' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{l}</button>)}
         <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-[11px]" />
-        <button type="button" onClick={add} className="btn-secondary text-xs">＋ 加時段</button>
+        {WD.map(({ d, l }) => <button key={d} type="button" onClick={() => toggleDay(d)} className={`rounded-full border px-2 py-0.5 text-[11px] ${has(d) ? 'border-brand-500 bg-brand-600 text-white' : 'border-sand-200 bg-white text-sand-500 hover:bg-brand-50'}`}>{l}</button>)}
       </div>
-      {msg && <p className="text-[11px] text-gold-600">{msg}</p>}
-      <p className="text-[11px] text-sand-400">用法:先點星期(可複選)→ 設時間 → 按「＋ 加時段」。{sched.length === 0 ? '設了之後 cron 會在每週指定時段自動用此主題產文發送。記得按「💾 存檔到雲端」。' : '改完記得按「💾 存檔到雲端」。'}</p>
+      <p className="text-[11px] text-sand-400">先選時間,再點星期:點一下加入(變實心)、再點一下取消。會自動存檔,也可到「🗓 排程」頁的週排程器調整。</p>
     </div>
   );
 }
