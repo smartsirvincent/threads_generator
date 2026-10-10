@@ -442,7 +442,7 @@ function WeeklyScheduler({ topics, todayDow, weatherDaily, onAdd, onRemove, onMo
   return (
     <div className="space-y-3">
       <p className="text-[11px] leading-relaxed text-sand-500">
-        在格子裡按「＋」選主題就排進去,✕ 移除;點時間可改整列時段。<strong className="text-sand-700">這裡就是每個主題的每週發文時段(唯一設定來源)</strong>,改了自動存,主題庫、月曆、主題產文都同步。cron 每天照這張表自動產文發送。
+        在格子裡按「＋」選主題就排進去,✕ 移除;點時間可改整列時段;<strong className="text-sand-700">點主題名稱可直接進去改該主題</strong>(提示詞、變數、療程、每週時段)。<strong className="text-sand-700">這裡就是每個主題的每週發文時段(唯一設定來源)</strong>,改了自動存,主題庫、月曆、主題產文都同步。cron 每天照這張表自動產文發送。
       </p>
 
       {/* 每日天氣(特別列) */}
@@ -486,7 +486,13 @@ function WeeklyScheduler({ topics, todayDow, weatherDaily, onAdd, onRemove, onMo
                   <div key={d} className={`min-h-[44px] space-y-1 px-1 ${d === todayDow ? 'bg-brand-50/40' : ''}`}>
                     {list.map((tp) => (
                       <div key={tp.id} className={`group flex items-start justify-between gap-1 rounded-md border border-l-4 border-sand-200 bg-white px-1.5 py-1 shadow-soft ${slotColor(tp.type, tp.name)}`}>
-                        <span className="text-[11px] font-medium leading-tight text-sand-800">{tp.name}<span className="ml-1 text-[9px] text-sand-400">{TYPE_LABEL[tp.type] || ''}</span></span>
+                        <a
+                          href={`/post?tab=library&topic=${encodeURIComponent(tp.id)}`}
+                          title={`開啟「${tp.name}」設定(提示詞、變數、療程、每週時段)`}
+                          className="text-[11px] font-medium leading-tight text-sand-800 underline-offset-2 hover:text-brand-600 hover:underline"
+                        >
+                          {tp.name}<span className="ml-1 text-[9px] text-sand-400">{TYPE_LABEL[tp.type] || ''}</span>
+                        </a>
                         <button type="button" onClick={() => onRemove(tp.id, d, tm)} title="移除" className="shrink-0 text-[11px] text-sand-300 hover:text-red-600">✕</button>
                       </div>
                     ))}

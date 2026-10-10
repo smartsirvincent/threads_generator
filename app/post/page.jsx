@@ -139,6 +139,14 @@ function PostPageInner() {
   function deleteTopic(id) { const p = pendingRef.current; delete p.ops[id]; p.news.delete(id); p.removes.add(id); setTopics((arr) => arr.filter((t) => t.id !== id)); setDirty(true); }
   function addManualTopic() { const id = newId(); pendingRef.current.news.add(id); setTopics((arr) => [{ id, type: 'text', name: '', prompt: '', imagePrompt: '', useLogo: false, enabled: true }, ...arr]); setOpenTopics((s) => new Set(s).add(id)); setDirty(true); setSaveMsg('已新增空白主題,填好後按存檔'); }
   function toggleTopic(id) { setOpenTopics((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  // 由排程頁點主題名稱過來(?topic=<id>):自動展開並捲到該主題
+  const focusTopic = sp.get('topic') || '';
+  useEffect(() => {
+    if (!focusTopic || !topics.some((t) => t.id === focusTopic)) return;
+    setOpenTopics((s) => new Set(s).add(focusTopic));
+    const el = document.getElementById(`topic-${focusTopic}`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focusTopic, topics]);
   function insertToPrompt(id, field, text) { markChanged(id, [field]); setTopics((arr) => arr.map((t) => t.id === id ? { ...t, [field]: ((t[field] || '').trim() ? (t[field].trim() + '，') : '') + text } : t)); setDirty(true); }
   // 只送「有改動的欄位」,伺服器合併到雲端最新版——排程頁/其他分頁的改動不會被這頁的舊資料蓋掉
   async function saveTopics() {
@@ -546,7 +554,11 @@ function PostPageInner() {
               {topics.map((t) => {
                 const isOpen = openTopics.has(t.id);
                 return (
-                <div key={t.id} className="rounded-2xl border border-sand-200">
+                <div
+                  key={t.id}
+                  id={`topic-${t.id}`}
+                  className={`rounded-2xl border ${t.id === focusTopic ? 'border-gold-500 ring-2 ring-gold-500/25' : 'border-sand-200'}`}
+                >
                   {/* 收合列:型別 + 主題 + 發文時間 + 啟用(預設只看這些) */}
                   <div className="flex items-center gap-2 p-3">
                     <button type="button" onClick={() => toggleTopic(t.id)} className="shrink-0 text-sand-400 hover:text-brand-600">{isOpen ? '▾' : '▸'}</button>

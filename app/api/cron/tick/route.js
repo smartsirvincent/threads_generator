@@ -52,6 +52,12 @@ function weeklyTreatmentContext(topic, products, seed) {
 }
 
 export const runtime = 'nodejs';
+
+// 排程時間一律用台北時區計算(Vercel 伺服器跑 UTC,直接用 getHours/setHours 會差 8 小時)
+const TZ_MIN = 8 * 60;
+const tzNow = () => new Date(Date.now() + TZ_MIN * 60000);   // 用 getUTC* 讀 = 台北時間
+const tzKey = (d) => `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+const tzTs = (d, hh, mm) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh || 0, mm || 0) - TZ_MIN * 60000;
 export const maxDuration = 300;
 
 const BASE = 'https://graph.threads.net/v1.0';
@@ -102,10 +108,10 @@ async function run() {
   // ⓪-2 每週排程 → 今天的時段materialize成佇列(每天一次)。排程設在各「主題」上(topic.schedule)。
   try {
     const s2 = await readSettings();
-    const today = new Date();
-    const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+    const today = tzNow();
+    const dateKey = tzKey(today);
     if (s2.lastWeeklyDate !== dateKey) {
-      const dow = today.getDay();
+      const dow = today.getUTCDay();
       const topics = await readTopics();
       // 收集今天要發的 (topic, time)
       const due = [];
@@ -123,11 +129,11 @@ async function run() {
         let seed = 0;
         for (const { topic, time } of due) {
           const [hh, mm] = String(time).split(':').map(Number);
-          const when = new Date(today); when.setHours(hh || 12, mm || 0, 0, 0);
+          const whenTs = tzTs(today, hh === undefined ? 12 : hh, mm);
           const tc = weeklyTreatmentContext(topic, products, dow + seed);
           const combo = crossCombo(activeDimsOf(topic), dow + seed);
           const text = await writePost({ type: topic.type, topicName: topic.name, prompt: topic.prompt, brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic, variant: dow + seed, treatmentContext: tc, culture: !!topic.culture, varLabel: combo.label, variableValue: combo.value });
-          if (text) { items.push({ id: `wk-${dateKey}-${topic.id}-${time.replace(':', '')}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: when.getTime(), status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
+          if (text) { items.push({ id: `wk-${dateKey}-${topic.id}-${time.replace(':', '')}`, text, topicId: topic.id, topicName: topic.name, type: topic.type, scheduledTs: whenTs, status: 'pending', mediaId: '', permalink: '', error: '', auto: true }); made++; }
           seed++;
         }
         if (made) await writeQueue(items);
@@ -142,11 +148,11 @@ async function run() {
     const s3 = await readSettings();
     const wd = s3.weatherDaily;
     if (wd && wd.enabled && /^\d{2}:\d{2}$/.test(wd.time || '')) {
-      const today = new Date();
-      const dateKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+      const today = tzNow();
+      const dateKey = tzKey(today);
       const [hh, mm] = wd.time.split(':').map(Number);
       const dueMin = (hh || 0) * 60 + (mm || 0);
-      const nowMin = today.getHours() * 60 + today.getMinutes();
+      const nowMin = today.getUTCHours() * 60 + today.getUTCMinutes();
       if (s3.lastWeatherDate !== dateKey && nowMin >= dueMin) {
         const prof = { ...medicalClinicProfile(), ...(await readCanonicalProfile() || {}) };
         const { text } = await makeWeatherPost({ brand: prof.brand, brand_persona: prof.brand_persona, audience: prof.audience, clinic: prof.clinic });
