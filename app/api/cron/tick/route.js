@@ -113,12 +113,27 @@ async function run() {
     if (s2.lastWeeklyDate !== dateKey) {
       const dow = today.getUTCDay();
       const topics = await readTopics();
-      // 收集今天要發的 (topic, time)
+      // 今天佇列裡已經有的(含手動送排程、已發),用來避免同一主題同一天重複
+      const existing = await readQueue();
+      const dayStart = tzTs(today, 0, 0);
+      const dayEnd = dayStart + 86400000;
+      const sameDay = existing.filter((x) => (x.scheduledTs || 0) >= dayStart && (x.scheduledTs || 0) < dayEnd);
+      const hhmmTz = (ts) => new Date(ts + TZ_MIN * 60000).toISOString().slice(11, 16);
+      // 收集今天要發的 (topic, time);已經有同主題的貼文就不再重複排
       const due = [];
       for (const topic of topics) {
         if (topic.enabled === false) continue;
-        for (const slot of (topic.schedule || [])) {
-          if (slot.weekday === dow && /^\d{2}:\d{2}$/.test(slot.time || '')) due.push({ topic, time: slot.time });
+        const slots = (topic.schedule || []).filter((s) => s.weekday === dow && /^\d{2}:\d{2}$/.test(s.time || ''));
+        if (!slots.length) continue;
+        const mine = sameDay.filter((x) => x.topicId === topic.id);
+        // 當天該主題已有的則數 >= 排定時段數 → 整個略過(例如使用者已手動排了)
+        let quota = slots.length - mine.length;
+        if (quota <= 0) continue;
+        for (const slot of slots) {
+          if (quota <= 0) break;
+          if (mine.some((x) => hhmmTz(x.scheduledTs) === slot.time)) continue; // 同時段已有,跳過
+          due.push({ topic, time: slot.time });
+          quota--;
         }
       }
       let made = 0;

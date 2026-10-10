@@ -337,13 +337,19 @@ function MonthlyCalendar({ qItems, topics, weatherDaily }) {
     const dow = new Date(y, m, day).getDay();
     const actual = byDate[day] || [];
     const res = [];
+    // 與 cron 同規則:當天同主題已有的貼文(手動或自動)算進額度,不會重複投影
     for (const t of topics) {
       if (t.enabled === false) continue;
-      for (const s of (t.schedule || [])) {
-        if (s.weekday === dow && /^\d{2}:\d{2}$/.test(s.time || '')) {
-          const dup = actual.some((a) => a.topicId === t.id && hhmm(a.scheduledTs) === s.time);
-          if (!dup) res.push({ time: s.time, topic: t });
-        }
+      const slots = (t.schedule || []).filter((x) => x.weekday === dow && /^\d{2}:\d{2}$/.test(x.time || ''));
+      if (!slots.length) continue;
+      const mine = actual.filter((a) => a.topicId === t.id);
+      let quota = slots.length - mine.length;
+      if (quota <= 0) continue;
+      for (const sl of slots) {
+        if (quota <= 0) break;
+        if (mine.some((a) => hhmm(a.scheduledTs) === sl.time)) continue;
+        res.push({ time: sl.time, topic: t });
+        quota--;
       }
     }
     // 每日天氣提醒(如有開啟)
