@@ -1,12 +1,37 @@
 // 排程佇列:待發貼文清單(存 Cloudinary 固定槽)。GET 列出;POST 依 action 增/刪。
 import { NextResponse } from 'next/server';
-import { readQueue, writeQueue, readPriceChanges, publishThreads, appendPostLog } from '@/lib/threads.js';
+import { readQueue, writeQueue, readPriceChanges, publishThreads, appendPostLog, readTopics } from '@/lib/threads.js';
 import { hasCloudinary } from '@/lib/cloudinary.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const newId = () => `q-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+
+// 排程一律用台北時區判斷(伺服器跑 UTC)
+const TZ_MIN = 8 * 60;
+const tzParts = (ts) => {
+  const d = new Date(Number(ts) + TZ_MIN * 60000);
+  return { weekday: d.getUTCDay(), time: d.toISOString().slice(11, 16) };
+};
+// 屬於某主題的貼文,只能排在該主題設定的指定時段
+async function rejectOffSlot(add) {
+  const needCheck = add.filter((x) => x.topicId);
+  if (!needCheck.length) return null;
+  const topics = await readTopics();
+  for (const x of needCheck) {
+    const tp = topics.find((t) => t.id === x.topicId);
+    if (!tp) continue;
+    const slots = (tp.schedule || []).filter((sl) => /^\d{2}:\d{2}$/.test(sl.time || ''));
+    if (!slots.length) return `主題「${tp.name}」還沒有指定時段,不能排程。請先到排程頁設定週幾、幾點。`;
+    const p = tzParts(x.scheduledTs);
+    if (!slots.some((sl) => sl.weekday === p.weekday && sl.time === p.time)) {
+      const WD = ['日', '一', '二', '三', '四', '五', '六'];
+      return `主題「${tp.name}」只能排在指定時段,週${WD[p.weekday]} ${p.time} 不在設定內。`;
+    }
+  }
+  return null;
+}
 
 // 對一段文字套用價格異動(舊→新),回 {text, changed, applied}
 function applyChanges(text, changes) {
@@ -45,6 +70,8 @@ export async function POST(req) {
           scheduledTs: Number(x.scheduledTs) || Date.now(),
           status: 'pending', mediaId: '', permalink: '', error: '',
         }));
+      const bad = await rejectOffSlot(add);
+      if (bad) return NextResponse.json({ error: bad }, { status: 400 });
       items = [...items, ...add];
       await writeQueue(items);
       return NextResponse.json({ ok: true, added: add.length, total: items.length });

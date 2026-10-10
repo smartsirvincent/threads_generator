@@ -86,9 +86,6 @@ function PostPageInner() {
   const [genProg, setGenProg] = useState({ done: 0, total: 0 });
   const [startDate, setStartDate] = useState(todayStr());
   const [qCursor, setQCursor] = useState(0); // 排程時段游標,單筆/批次送排程時往後遞延
-  const [fbTimes, setFbTimes] = useState(['13:00', '17:00']); // 主題沒排每週時段時的臨時排法:每天這幾點
-  const [fbNew, setFbNew] = useState('20:00');
-  const [fbMsg, setFbMsg] = useState('');
   const [actMsg, setActMsg] = useState('');
 
   // 預約發文(天氣)
@@ -366,17 +363,14 @@ function PostPageInner() {
 
   // 排程時段一律取自「主題的每週時段」(單一來源,在排程頁週排程器設定)
   const topicSlots = (selected?.schedule || []).filter((s) => /^\d{2}:\d{2}$/.test(s.time || ''));
-  // 主題沒排每週時段時,用「臨時排法」(每天固定幾點),確保產好的文一定送得出去
-  const usingFallback = !topicSlots.length;
-  const effTimes = usingFallback ? fbTimes : topicSlots.map((s) => s.time);
+  // 一律只能排在主題的「指定時段」;沒設時段就不能送排程
   function timesForDay(dow) {
-    if (!usingFallback) return topicSlots.filter((s) => s.weekday === dow).map((s) => s.time).sort();
-    return fbTimes.slice().sort();
+    return topicSlots.filter((s) => s.weekday === dow).map((s) => s.time).sort();
   }
-  // 從起始日起排出時段序列(有每週時段就照表,否則用臨時排法)
+  // 從起始日起,依主題的指定時段排出時段序列
   function buildSlotSeq(total) {
     const out = [];
-    if (!effTimes.length) return out;
+    if (!topicSlots.length) return out;
     const cur = new Date(`${startDate}T00:00:00`);
     let guard = 0;
     while (out.length < total && guard < 800) {
@@ -399,17 +393,7 @@ function PostPageInner() {
     setQCursor(qCursor + n);
     return picked.length ? picked : seq.slice(0, n);
   }
-  const NO_SCHED_MSG = '請至少留一個發文時間(下方「臨時排法」),或到「🗓 排程」頁幫這個主題排每週時段。';
-
-  // 把臨時排法存成主題的每週時段(7 天都排),之後 cron 也會照表自動產文
-  async function saveFallbackAsWeekly() {
-    if (!selected || !fbTimes.length) return;
-    const schedule = [];
-    for (let d = 0; d < 7; d++) for (const t of fbTimes.slice().sort()) schedule.push({ weekday: d, time: t });
-    updateTopic(selected.id, { schedule });
-    setFbMsg('✓ 已存成每週時段(每天 ' + fbTimes.slice().sort().join('、') + ')');
-    setTimeout(() => setFbMsg(''), 3000);
-  }
+  const NO_SCHED_MSG = '此主題還沒有指定時段,不能排程。請先到「🗓 排程」頁的週排程器,把它排到週幾、幾點。';
 
   const gmeta = () => ({ topicId: selected?.id || '', topicName: selected?.name || '', type: selected?.type || '' });
   function badGen(g) { return !g.text.trim() || g.text.startsWith('⚠'); }
@@ -443,7 +427,7 @@ function PostPageInner() {
   // 批次:全部送排程
   async function sendToQueue() {
     if (!kept.length) { setError('沒有勾選要送的貼文'); return; }
-    if (!effTimes.length) { setError(NO_SCHED_MSG); return; }
+    if (!topicSlots.length) { setError(NO_SCHED_MSG); return; }
     setActMsg('送排程中…'); setError('');
     try {
       const ts = takeSlots(kept.length);
@@ -683,33 +667,19 @@ function PostPageInner() {
                   <div className="rounded-2xl border border-sand-200 bg-sand-50 p-3 space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <p className="text-xs font-medium text-sand-700">🗓 {usingFallback ? '臨時排法(此主題尚未排每週時段)' : '依此主題的每週時段排入'}</p>
-                        {usingFallback ? (
-                          <p className="mt-0.5 text-[11px] text-sand-500">從起始日起,每天這幾點各排一則,排完往後一天繼續。</p>
-                        ) : (
+                        <p className="text-xs font-medium text-sand-700">🗓 依此主題的指定時段排入</p>
+                        {topicSlots.length ? (
                           <p className="mt-0.5 text-[11px] text-brand-700">{scheduleSummary(topicSlots)}</p>
+                        ) : (
+                          <p className="mt-0.5 text-[11px] text-gold-700">⚠ 此主題還沒有指定時段,不能送排程。請先到排程頁排好週幾、幾點。</p>
                         )}
                       </div>
-                      <a href="/schedule" className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs text-brand-700 hover:bg-brand-50">✏️ 到排程頁調整時段</a>
+                      <a href="/schedule" className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs text-brand-700 hover:bg-brand-50">✏️ 到排程頁設定時段</a>
                     </div>
-                    {usingFallback && (
-                      <div className="space-y-2 rounded-xl border border-gold-200 bg-gold-50/40 p-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {fbTimes.slice().sort().map((t) => (
-                            <span key={t} className="flex items-center gap-1 rounded-full border border-gold-300 bg-white px-2 py-0.5 text-[11px] text-sand-700">{t}<button type="button" onClick={() => setFbTimes((a) => a.filter((x) => x !== t))} className="text-sand-400 hover:text-red-600">✕</button></span>
-                          ))}
-                          <input type="time" value={fbNew} onChange={(e) => setFbNew(e.target.value)} className="rounded-lg border border-sand-200 px-1.5 py-0.5 text-[11px]" />
-                          <button type="button" onClick={() => { if (/^\d{2}:\d{2}$/.test(fbNew) && !fbTimes.includes(fbNew)) { setFbTimes((a) => [...a, fbNew]); setQCursor(0); } }} className="btn-secondary text-xs">＋ 加時間</button>
-                        </div>
-                        <p className="text-[11px] text-sand-500">目前每天 {fbTimes.length} 則{fbTimes.length ? `(${fbTimes.slice().sort().join('、')})` : ',請至少加一個時間'};{kept.length} 則約排 {fbTimes.length ? Math.ceil(kept.length / fbTimes.length) : '—'} 天。</p>
-                        <button type="button" onClick={saveFallbackAsWeekly} disabled={!fbTimes.length || !selected} className="rounded-full border border-brand-300 bg-white px-3 py-1 text-xs text-brand-700 hover:bg-brand-50 disabled:opacity-40">📌 把這些時間存成此主題的每週時段(每天)</button>
-                        {fbMsg && <span className="ml-2 text-[11px] text-emerald-700">{fbMsg}</span>}
-                      </div>
-                    )}
                     <div><label className="label text-xs">從哪天開始排</label><input type="date" className="input w-auto text-sm" value={startDate} onChange={(e) => { setStartDate(e.target.value); setQCursor(0); }} /></div>
-                    <p className="text-[11px] text-sand-400">送排程時,依「已勾選」則數,從起始日起依主題的每週時段依序排入。時段只在排程頁設定一次,這裡自動沿用。</p>
+                    <p className="text-[11px] text-sand-400">送排程時,依「已勾選」則數,從起始日起依主題的指定時段依序排入;指定時段以外一律不排。時段只在排程頁設定一次,這裡自動沿用。</p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" onClick={sendToQueue} disabled={!kept.length || !effTimes.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
+                      <button type="button" onClick={sendToQueue} disabled={!kept.length || !topicSlots.length} className="btn-primary text-sm disabled:opacity-50">🗓 已勾選送排程({kept.length})</button>
                       <button type="button" onClick={postAllNow} disabled={!kept.length} className="btn-secondary text-sm disabled:opacity-50">🧵 已勾選立即發</button>
                       {actMsg && <span className="text-xs text-emerald-700">{actMsg}</span>}
                     </div>
