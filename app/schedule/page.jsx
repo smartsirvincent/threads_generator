@@ -391,18 +391,30 @@ function MonthlyCalendar({ qItems, topics, weatherDaily }) {
                 <div key={i} className={`min-h-[86px] rounded-lg border p-1 ${isToday ? 'border-brand-400 bg-brand-50/40' : 'border-sand-200 bg-white'}`}>
                   <div className={`mb-0.5 text-[11px] font-medium ${isToday ? 'text-brand-700' : 'text-sand-500'}`}>{day}</div>
                   <div className="space-y-0.5">
-                    {actual.map((it) => (
-                      <div key={it.id} className={`rounded border-l-2 bg-sand-50 px-1 py-0.5 text-[9px] leading-tight ${statusChip(it)}`} title={`${hhmm(it.scheduledTs)} ${it.topicName || ''}`}>
-                        <span className="text-sand-700">{hhmm(it.scheduledTs)} {it.topicName || '—'}</span>
-                        <span className="ml-0.5 text-sand-400">{TYPE_LABEL[it.type] || ''}</span>
-                      </div>
-                    ))}
-                    {planned.map((p, j) => (
-                      <div key={'p' + j} className={`rounded border-l-2 border-dashed bg-white px-1 py-0.5 text-[9px] leading-tight ${slotColor(p.topic?.type, p.topic?.name)}`} title={`${p.time} ${p.topic?.name || ''}(預定)`}>
-                        <span className="text-sand-500">{p.time} {p.topic?.name || '—'}</span>
-                        <span className="ml-0.5 text-sand-300">{TYPE_LABEL[p.topic?.type] || ''}</span>
-                      </div>
-                    ))}
+                    {actual.map((it) => {
+                      const inner = (
+                        <>
+                          <span className="text-sand-700">{hhmm(it.scheduledTs)} {it.topicName || '—'}</span>
+                          <span className="ml-0.5 text-sand-400">{TYPE_LABEL[it.type] || ''}</span>
+                        </>
+                      );
+                      const cls = `block rounded border-l-2 bg-sand-50 px-1 py-0.5 text-[9px] leading-tight ${statusChip(it)}`;
+                      return it.topicId
+                        ? <a key={it.id} href={`/post?tab=library&topic=${encodeURIComponent(it.topicId)}`} title={`${hhmm(it.scheduledTs)} ${it.topicName || ''}——點選開啟主題設定`} className={`${cls} hover:bg-brand-50`}>{inner}</a>
+                        : <div key={it.id} className={cls} title={`${hhmm(it.scheduledTs)} ${it.topicName || ''}`}>{inner}</div>;
+                    })}
+                    {planned.map((p, j) => {
+                      const inner = (
+                        <>
+                          <span className="text-sand-500">{p.time} {p.topic?.name || '—'}</span>
+                          <span className="ml-0.5 text-sand-300">{TYPE_LABEL[p.topic?.type] || ''}</span>
+                        </>
+                      );
+                      const cls = `block rounded border-l-2 border-dashed bg-white px-1 py-0.5 text-[9px] leading-tight ${slotColor(p.topic?.type, p.topic?.name)}`;
+                      return p.topic?.id
+                        ? <a key={'p' + j} href={`/post?tab=library&topic=${encodeURIComponent(p.topic.id)}`} title={`${p.time} ${p.topic.name}(預定)——點選開啟主題設定、改每週時段`} className={`${cls} hover:bg-brand-50`}>{inner}</a>
+                        : <div key={'p' + j} className={cls} title={`${p.time} ${p.topic?.name || ''}(預定)`}>{inner}</div>;
+                    })}
                   </div>
                 </div>
               );
@@ -410,7 +422,7 @@ function MonthlyCalendar({ qItems, topics, weatherDaily }) {
           </div>
         </div>
       </div>
-      <p className="text-[11px] text-sand-400">實心=實際佇列(已發/待發),虛線=未來每週預定(由主題時段投影,cron 到當天才會實際排入)。</p>
+      <p className="text-[11px] text-sand-400">實心=實際佇列(已發/待發),虛線=未來每週預定(由主題時段投影,cron 到當天才會實際排入)。點任一則可開啟該主題設定(改提示詞、變數、每週時段)。</p>
     </div>
   );
 }
