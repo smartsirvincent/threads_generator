@@ -1,7 +1,8 @@
 'use client';
 
 // 內容 / 發文:主題庫(3型別+提示詞+存檔) → 依主題批次產文(≤100)→ 勾選送排程 / 立即發。排程與連線各自獨立成頁。
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { medicalClinicProfile, CANONICAL_PROFILE_NAME } from '@/lib/verticals.js';
 import { loadCanonicalProfile } from '@/lib/profile-store.js';
 import { decorateImageUrl } from '@/lib/overlay.js';
@@ -41,11 +42,19 @@ const newId = () => `t-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export default function PostPage() {
+  return <Suspense fallback={null}><PostPageInner /></Suspense>;
+}
+
+function PostPageInner() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const ctx = { brand: profile.brand, brand_persona: profile.brand_persona, audience: profile.audience };
   const clinic = profile.clinic || null;
 
-  const [tab, setTab] = useState('library');
+  // 分頁改由網址決定(?tab=),讓上方第二層導覽可以直接連到各分頁
+  const router = useRouter();
+  const sp = useSearchParams();
+  const tab = ['library', 'produce', 'weather'].includes(sp.get('tab')) ? sp.get('tab') : 'library';
+  const setTab = (t) => router.replace(t === 'library' ? '/post' : `/post?tab=${t}`, { scroll: false });
   const [topics, setTopics] = useState([]);
   const [openTopics, setOpenTopics] = useState(new Set()); // 展開的主題(預設全收合)
   const [dirty, setDirty] = useState(false);
@@ -477,17 +486,19 @@ export default function PostPage() {
 
   return (
     <main className="space-y-6">
-      <div className="card border-brand-200 bg-brand-50/40">
-        <h1 className="font-display text-2xl font-semibold text-sand-900">🧵 內容 / 發文</h1>
-        <p className="mt-2 text-sm text-sand-600">建立主題 → 依主題產文(最多 100 則)→ 每則可立即發、存排程或刪除。品牌／療程自動帶入(在「品牌與療程」維護)。排程與連線各自獨立成頁。</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[['library', '🗂 建立主題'], ['produce', '✍️ 主題產文'], ['weather', '🌤 預約發文']].map(([k, l]) => (
-            <button key={k} type="button" onClick={() => setTab(k)} className={`rounded-full px-4 py-1.5 text-sm ${tab === k ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>{l}</button>
-          ))}
-          <a href="/schedule" className="ml-auto rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">🗓 排程</a>
-          <a href="/analytics" className="rounded-full border border-sand-200 bg-white px-4 py-1.5 text-sm text-sand-600 hover:bg-brand-50">📊 成效分析</a>
+      {/* 分頁已移到上方第二層導覽,這裡只留本頁說明與連線狀態 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand-200 pb-3">
+        <div>
+          <h1 className="font-display text-xl font-bold text-brand-600">
+            {tab === 'library' ? '建立主題' : tab === 'produce' ? '主題產文' : '預約發文'}
+          </h1>
+          <p className="mt-1 text-[13px] text-sand-500">
+            {tab === 'library' ? '維護主題、提示詞、變數與綁定療程;每週發文時段在「發文排程」設定。'
+              : tab === 'produce' ? '選主題批次產文(最多 100 則),每則可立即發、存排程或刪除。'
+              : '抓曼谷當天天氣產出提醒貼文;每日自動發在「發文排程」設定。'}
+          </p>
         </div>
-        <p className="mt-2 text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設好 token 才能排程自動發(可先產文＋複製)</span>}</p>
+        <p className="text-xs">{threadsConfigured === null ? '　' : threadsConfigured ? <span className="text-down">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設好 token 才能排程自動發</span>}</p>
       </div>
 
       {tab === 'library' && (

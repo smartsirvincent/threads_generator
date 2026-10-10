@@ -95,7 +95,7 @@ function Stat({ label, value, sub, warn }) {
       <div className="text-xs text-stone-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-stone-900">{value}</div>
       {sub && (
-        <div className={`text-xs ${warn ? 'text-amber-600' : 'text-green-600'}`}>
+        <div className={`text-xs ${warn ? 'text-gold-600' : 'text-green-600'}`}>
           {sub}
         </div>
       )}

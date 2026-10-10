@@ -1,7 +1,8 @@
 'use client';
 
 // 排程:每週時刻表(依主題+類型彙整)+ 依主題篩選/分組管理,逐則編輯/刪除/立即發送(1 篇 1 篇)
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 const WEEK = [
   { d: 1, label: '週一' }, { d: 2, label: '週二' }, { d: 3, label: '週三' },
@@ -18,6 +19,10 @@ function slotColor(type, name) {
 }
 
 export default function SchedulePage() {
+  return <Suspense fallback={null}><SchedulePageInner /></Suspense>;
+}
+
+function SchedulePageInner() {
   const [qItems, setQItems] = useState([]);
   const [qBusy, setQBusy] = useState(false);
   const [qMsg, setQMsg] = useState('');
@@ -34,7 +39,11 @@ export default function SchedulePage() {
   const [sendingId, setSendingId] = useState('');
   const [lightbox, setLightbox] = useState('');
   const [topics, setTopics] = useState([]);
-  const [view, setView] = useState('week'); // 'week'(可編輯週排程器) | 'month'
+  // 檢視改由網址決定(?view=),對應上方第二層導覽
+  const router = useRouter();
+  const sp = useSearchParams();
+  const view = sp.get('view') === 'month' ? 'month' : 'week'; // 'week'(可編輯週排程器) | 'month'
+  const setView = (v) => router.replace(v === 'month' ? '/schedule?view=month' : '/schedule', { scroll: false });
   const [schedMsg, setSchedMsg] = useState('');
   const [weatherDaily, setWeatherDaily] = useState(null);
 
@@ -158,21 +167,21 @@ export default function SchedulePage() {
 
   return (
     <main className="space-y-6">
-      <div className="card border-brand-200 bg-brand-50/40">
-        <h1 className="font-display text-2xl font-semibold text-sand-900">🗓 排程</h1>
-        <p className="mt-2 text-sm text-sand-600">排程中心:在「週排程」把主題排到每週幾、幾點(唯一設定處,改了自動存、主題庫同步)→ cron 每天照表自動產文發送 → 「當月月曆」看全貌 → 下方佇列管理實際待發貼文。</p>
-        <p className="mt-2 text-xs">{configured === null ? '　' : configured ? <span className="text-emerald-600">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設定後才能發文</span>}</p>
+      {/* 檢視切換已移到上方第二層導覽,這裡只留本頁說明與連線狀態 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand-200 pb-3">
+        <div>
+          <h1 className="font-display text-xl font-bold text-brand-600">{view === 'week' ? '週排程' : '當月月曆'}</h1>
+          <p className="mt-1 text-[13px] text-sand-500">
+            {view === 'week'
+              ? '把主題排到每週幾、幾點(唯一設定處,改了自動存、主題庫同步)→ cron 每天照表自動產文發送。'
+              : '看整個月預計發什麼、實際排了哪些貼文;時段要改請回「週排程」。'}
+          </p>
+        </div>
+        <p className="text-xs">{configured === null ? '　' : configured ? <span className="text-down">✓ Threads 已連接</span> : <span className="text-gold-600">⚠ Threads 未連接 — 到「連線設定」設定後才能發文</span>}</p>
       </div>
 
-      {/* 排程中心:可編輯週排程器(單一來源=主題每週時段) / 當月月曆 */}
       <div className="card space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setView('week')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'week' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>🗓 週排程(編輯)</button>
-            <button type="button" onClick={() => setView('month')} className={`rounded-full px-3 py-1.5 text-sm ${view === 'month' ? 'bg-brand-600 text-white shadow-soft' : 'text-sand-600 hover:bg-brand-50'}`}>📅 當月月曆</button>
-          </div>
-          {schedMsg && <span className="text-xs text-emerald-700">{schedMsg}</span>}
-        </div>
+        {schedMsg && <div className="text-xs text-down">{schedMsg}</div>}
 
         {view === 'week' && (
           <WeeklyScheduler

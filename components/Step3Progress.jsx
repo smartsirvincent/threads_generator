@@ -480,7 +480,7 @@ export default function Step3Progress({ input, themes, onDone, onBack }) {
 
           <div className="h-2 overflow-hidden rounded-full bg-stone-100">
             <div
-              className="h-full bg-purple-500 transition-all"
+              className="h-full bg-brand-500 transition-all"
               style={{ width: `${(imageState.done / imageState.total) * 100}%` }}
             />
           </div>
@@ -534,7 +534,7 @@ function ImageTile({ img, compact = false, onDelete }) {
     <div
       className={`relative overflow-hidden rounded-lg border ${
         isDeleted ? 'border-red-300 bg-red-50' :
-        isRegen ? 'border-amber-300 bg-amber-50' :
+        isRegen ? 'border-gold-300 bg-gold-50' :
         'border-stone-200'
       }`}
     >
@@ -606,7 +606,7 @@ function ImageReviewPanel({ images, onDelete, onRegenerate, onConfirm, regenerat
         💡 每張圖右上角「×」=刪除整列（連對應的文案也會從 xlsx 拿掉，不是只刪圖）。
         不滿意刪掉後按下方「重新生成」會用原 prompt 再跑一輪。確認後「下載 xlsx」才會封檔。
       </p>
-      <p className="rounded-lg bg-amber-50 px-4 py-2 text-xs text-amber-800">
+      <p className="rounded-lg bg-gold-50 px-4 py-2 text-xs text-gold-700">
         ⚠ 失敗 (⚠) 的圖也會被視為刪除狀態,確定下載後那幾列不會出現在 xlsx。可以先按重新生成救回來。
       </p>
 
@@ -645,7 +645,7 @@ function ImageReviewPanel({ images, onDelete, onRegenerate, onConfirm, regenerat
               type="button"
               onClick={onRegenerate}
               disabled={regenerating}
-              className="rounded-lg border border-purple-300 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+              className="rounded-lg border border-brand-300 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-50"
             >
               {regenerating ? '🔄 重新生成中…' : `🔄 重新生成 ${deleted} 張`}
             </button>

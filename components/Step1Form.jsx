@@ -405,7 +405,7 @@ export default function Step1Form({
                   type="button"
                   onClick={handleSaveCloud}
                   disabled={cloudBusy}
-                  className="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                  className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
                 >
                   {cloudBusy ? '儲存中…' : '☁️ 儲存到雲端（跨裝置）'}
                 </button>
@@ -450,8 +450,8 @@ export default function Step1Form({
         </div>
 
         {/* ===== 診所資訊 (醫美專用,恆顯示) ===== */}
-        <div className="rounded-lg border border-rose-200 bg-rose-50/30 p-3 space-y-3">
-          <div className="text-sm font-semibold text-rose-900">🏥 診所資訊 <span className="text-xs font-normal text-stone-500">（融入文案信任感 + 生圖診間氛圍；不會憑空生出假認證標）</span></div>
+        <div className="rounded-lg border border-brand-200 bg-brand-50/30 p-3 space-y-3">
+          <div className="text-sm font-semibold text-brand-900">🏥 診所資訊 <span className="text-xs font-normal text-stone-500">（融入文案信任感 + 生圖診間氛圍；不會憑空生出假認證標）</span></div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {CLINIC_FIELDS.map((f) => (
               <div key={f.key} className={f.long ? 'md:col-span-2' : ''}>
@@ -527,7 +527,7 @@ export default function Step1Form({
             />
           </div>
           <div>
-            <label className="label">品牌人格/口吻 * <span className="text-xs font-normal text-rose-600">（建議用「閨蜜」口吻）</span></label>
+            <label className="label">品牌人格/口吻 * <span className="text-xs font-normal text-brand-600">（建議用「閨蜜」口吻）</span></label>
             <textarea
               className="input min-h-[80px]"
               value={input.brand_persona}
@@ -538,7 +538,7 @@ export default function Step1Form({
         </div>
 
         {showThemeStrategy && (
-          <div className="rounded-lg border border-purple-100 bg-purple-50/40 p-3">
+          <div className="rounded-lg border border-brand-100 bg-brand-50/40 p-3">
             <label className="label mb-2">
               療程分配策略 <span className="text-xs font-normal text-stone-500">（影響 AI 推薦主題與貼文如何對應療程）</span>
             </label>
@@ -553,7 +553,7 @@ export default function Step1Form({
                     name="image_theme_strategy"
                     checked={(input.image_theme_strategy || 'shared') === s.key}
                     onChange={() => update('image_theme_strategy', s.key)}
-                    className="mt-1 size-4 border-stone-300 text-purple-600 focus:ring-purple-500"
+                    className="mt-1 size-4 border-stone-300 text-brand-600 focus:ring-brand-500"
                   />
                   <span>
                     <span className="block text-sm font-medium text-stone-800">{s.label}</span>
@@ -595,8 +595,8 @@ export default function Step1Form({
         </div>
 
         {/* ===== 批次貼價格 → AI 自動分配到各療程 ===== */}
-        <details className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-          <summary className="cursor-pointer text-sm font-medium text-amber-900">💰 批次貼價格（貼一大串價目表，AI 自動填到各療程）</summary>
+        <details className="rounded-lg border border-gold-200 bg-gold-50/50 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-gold-700">💰 批次貼價格（貼一大串價目表，AI 自動填到各療程）</summary>
           <div className="mt-3 space-y-2">
             <textarea
               className="input min-h-[110px] text-xs"
@@ -609,13 +609,13 @@ export default function Step1Form({
                 type="button"
                 onClick={applyPrices}
                 disabled={priceBusy}
-                className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="rounded-md bg-gold-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-gold-700 disabled:opacity-50"
               >
                 {priceBusy ? 'AI 分配中…' : '🪄 自動分配到各療程'}
               </button>
-              {priceMsg && <span className="text-xs text-amber-800">{priceMsg}</span>}
+              {priceMsg && <span className="text-xs text-gold-700">{priceMsg}</span>}
             </div>
-            <p className="text-[11px] text-amber-700/80">
+            <p className="text-[11px] text-gold-700/80">
               AI 只會依你貼的文字對應價格、不會編造；填完可逐一微調，再按下方「☁️ 存雲端」保存。
             </p>
           </div>
@@ -701,7 +701,7 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
             type="checkbox"
             checked={enabled}
             onChange={(e) => onChange({ include_in_image_gen: e.target.checked })}
-            className="size-4 rounded border-stone-300 text-rose-600 focus:ring-rose-500"
+            className="size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
           />
           納入生成
         </label>
@@ -743,7 +743,7 @@ function ProductCard({ index, product, onChange, onRemove, canRemove, showImageG
                   type="checkbox"
                   checked={styles[s.key] !== false}
                   onChange={() => onToggleStyle?.(s.key)}
-                  className="size-3.5 rounded border-stone-300 text-purple-600 focus:ring-purple-500"
+                  className="size-3.5 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
                 />
                 {s.label}
               </label>

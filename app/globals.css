@@ -2,35 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 色票與版面仿「群益期貨 Threads AI 發文」:紙白方格底、藏青主色、金色點綴 */
 :root {
-  --color-bg: #FBF7F2;        /* 溫暖奶油底 */
-  --color-fg: #37302A;        /* 溫暖墨咖 */
+  --paper: #FFFFFF;           /* 紙白底 */
+  --card: #F8FAFC;            /* 淺灰卡片/表頭 */
+  --ink: #0F172A;             /* 墨黑 */
+  --muted: #64748B;           /* 次要文字 */
+  --rule: #E2E8F0;            /* 分隔線 */
+  --navy: #1E3A8A;            /* 主色 */
+  --gold: #B7791F;            /* 點綴 */
+  --up: #C2410C;
+  --down: #15803D;
+
+  /* 舊變數沿用名稱,避免既有樣式失效 */
+  --color-bg: var(--paper);
+  --color-fg: var(--ink);
   --color-card: #FFFFFF;
-  --color-border: #EADFD1;    /* 沙色描邊 */
-  --color-brand: #C06B57;     /* 玫瑰陶土 */
-  --color-gold: #B98E2F;      /* 香檳金 */
+  --color-border: var(--rule);
+  --color-brand: var(--navy);
+  --color-gold: var(--gold);
 }
 
+html { color-scheme: light; }
+
 html, body {
-  background: var(--color-bg);
-  color: var(--color-fg);
-  font-family: 'Figtree', system-ui, -apple-system, 'Noto Sans TC', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* 方格紙底紋(群益標誌性背景) */
+body {
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 * { box-sizing: border-box; }
 
 @layer base {
-  /* 標題用 Fraunces(柔性襯線),自帶品牌氣質 */
+  /* 標題用思源宋體,對應群益的 Noto Serif TC */
   h1, h2, h3, .font-display {
-    font-family: 'Fraunces', Georgia, 'Noto Serif TC', serif;
-    font-optical-sizing: auto;
+    font-family: 'Noto Serif TC', Georgia, serif;
+    font-weight: 700;
     letter-spacing: -0.01em;
+    color: var(--navy);
   }
   /* 鍵盤可見焦點(無障礙) */
   :focus-visible {
-    outline: 2px solid var(--color-brand);
+    outline: 2px solid var(--navy);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -38,45 +61,43 @@ html, body {
 }
 
 @layer components {
+  /* 按鈕走方角(群益風),膠囊留給 tag/chip */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-semibold transition-colors duration-150;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-soft hover:bg-brand-700 hover:shadow-lift active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-45 disabled:cursor-not-allowed;
   }
   .btn-gold {
-    @apply btn bg-gold-600 text-white shadow-soft hover:bg-gold-700 active:scale-[0.98] disabled:opacity-50;
+    @apply btn bg-gold-600 text-white hover:bg-gold-700 disabled:opacity-45;
   }
   .btn-secondary {
-    @apply btn border border-sand-200 bg-white text-sand-700 hover:border-sand-300 hover:bg-sand-50;
+    @apply btn border border-sand-200 bg-white text-brand-600 hover:bg-sand-50 disabled:opacity-45;
   }
   .input {
-    @apply w-full rounded-xl border border-sand-200 bg-white px-3.5 py-2.5 text-sm text-sand-800
+    @apply w-full rounded-md border border-sand-200 bg-white px-3 py-2 text-sm text-sand-900
            placeholder-sand-400 outline-none transition
-           focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15;
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
   }
   .label {
-    @apply mb-1.5 block text-sm font-medium text-sand-700;
+    @apply mb-1.5 block text-sm font-medium text-sand-600;
   }
   .card {
-    @apply rounded-2xl border border-sand-200 bg-white p-6 shadow-soft;
+    @apply rounded-lg border border-sand-200 bg-white p-5 shadow-soft;
   }
-  /* 簽名元素:水光 glow(柔和放射光暈,用於 hero) */
-  .glow {
-    position: relative;
-    isolation: isolate;
+  /* 標籤膠囊(對應群益 .tag) */
+  .tag {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-sand-200 bg-white px-2 py-1 text-xs font-semibold text-sand-500;
   }
-  .glow::before {
-    content: '';
-    position: absolute;
-    inset: -20% -10% auto -10%;
-    height: 70%;
-    background: radial-gradient(60% 100% at 30% 0%, rgba(192,107,87,0.16), transparent 70%),
-                radial-gradient(50% 100% at 85% 10%, rgba(185,142,47,0.14), transparent 70%);
-    z-index: -1;
-    filter: blur(8px);
-    pointer-events: none;
+  /* 數字一律等寬(對應群益 JetBrains Mono) */
+  .num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   }
+  /* 頁首色帶(群益 hero 底部的四色 ticker) */
+  .ticker {
+    background: linear-gradient(90deg, var(--navy), var(--gold), var(--down), var(--up));
+  }
+  .glow { position: relative; isolation: isolate; }
 }
 
 /* 尊重減少動態偏好 */
