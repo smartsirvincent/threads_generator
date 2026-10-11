@@ -24,6 +24,13 @@ export async function POST(req) {
         time: /^\d{2}:\d{2}$/.test(body.weatherDaily.time || '') ? body.weatherDaily.time : '08:00',
       };
     }
+    // 建立主題可插入的「特色」清單(可自行新增/刪除)
+    if (Array.isArray(body.insertVars)) {
+      next.insertVars = body.insertVars
+        .map((v) => String(v || '').trim().slice(0, 40))
+        .filter(Boolean)
+        .slice(0, 30);
+    }
     await writeSettings(next);
     return NextResponse.json({ ok: true, ...next });
   } catch (e) {

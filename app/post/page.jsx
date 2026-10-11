@@ -8,6 +8,16 @@ import { loadCanonicalProfile } from '@/lib/profile-store.js';
 import { decorateImageUrl } from '@/lib/overlay.js';
 
 const DEFAULT_PROFILE = medicalClinicProfile();
+// 可插入提示詞的「特色」預設值(可在建立主題頁自行增刪,存雲端)。
+// 醫美券只有二日套餐才有,所以預設就寫明前提,避免產出沒前提的講法。
+const DEFAULT_INSERT_VARS = [
+  '二日套餐每人送 THB 5,000 醫美券(限套餐)',
+  '逐句翻譯零溝通障礙',
+  '回台後 LINE 隨時問',
+  '自有醫師不是租的',
+  '曼谷景點順遊',
+  '術後照護提醒',
+];
 const logoCloudCache = {}; // { 原始logoURL: cloudinaryURL }
 // 找一個與 total 互質、約 0.618×total 的步長(黃金比例跳躍→交叉取樣分散、不連續重複)
 function pickStride(total) {
@@ -96,6 +106,10 @@ function PostPageInner() {
   const [wxDate, setWxDate] = useState(todayStr());
   const [wxTime, setWxTime] = useState(nowTime());
   const [wxMsg, setWxMsg] = useState('');
+  // 可插入的「特色」:存雲端設定,可自行新增/刪除
+  const [insertVars, setInsertVars] = useState(DEFAULT_INSERT_VARS);
+  const [varsMsg, setVarsMsg] = useState('');
+  const [newVar, setNewVar] = useState('');
   const [wxDailyOn, setWxDailyOn] = useState(false);
   const [wxDailyTime, setWxDailyTime] = useState('08:00');
   const [wxDailyMsg, setWxDailyMsg] = useState('');
@@ -104,8 +118,17 @@ function PostPageInner() {
     (async () => { const canon = await loadCanonicalProfile(CANONICAL_PROFILE_NAME); if (canon?.products?.length) setProfile({ ...DEFAULT_PROFILE, ...canon }); })();
     refreshTopics();
     (async () => { try { const r = await fetch('/api/threads/post', { cache: 'no-store' }); const d = await r.json(); setThreadsConfigured(!!d.configured); } catch (_) { setThreadsConfigured(false); } })();
-    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); if (d.weatherDaily) { setWxDailyOn(!!d.weatherDaily.enabled); if (d.weatherDaily.time) setWxDailyTime(d.weatherDaily.time); } } catch (_) {} })();
+    (async () => { try { const r = await fetch('/api/settings', { cache: 'no-store' }); const d = await r.json(); if (d.weatherDaily) { setWxDailyOn(!!d.weatherDaily.enabled); if (d.weatherDaily.time) setWxDailyTime(d.weatherDaily.time); } if (Array.isArray(d.insertVars) && d.insertVars.length) setInsertVars(d.insertVars); } catch (_) {} })();
   }, []);
+
+  async function saveInsertVars(next) {
+    setInsertVars(next); setVarsMsg('儲存中…');
+    try {
+      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ insertVars: next }) });
+      if (!r.ok) throw new Error((await r.json()).error || 'HTTP ' + r.status);
+      setVarsMsg('✓ 已儲存'); setTimeout(() => setVarsMsg(''), 2000);
+    } catch (e) { setVarsMsg('✗ ' + e.message); }
+  }
 
   async function saveWeatherDaily(enabled, time) {
     setWxDailyOn(enabled); if (time) setWxDailyTime(time);
@@ -207,7 +230,7 @@ function PostPageInner() {
 
   // 提示詞可插入的療程(帶價)、變數、方向靈感
   const treatments = (profile.products || []).filter((p) => p && p.name && p.include_in_image_gen !== false).map((p) => ({ name: p.name, price: p.promo_offer || '' }));
-  const VARS = ['每人 5,000 醫美券直接抵', '逐句翻譯零溝通障礙', '回台後 LINE 隨時問', '自有醫師不是租的', '曼谷景點順遊', '術後照護提醒'];
+  const VARS = insertVars;
   const DIRECTIONS = ['破除迷思', '真實心得', '價格划算', '適合誰/不適合', '術後照護', '曼谷順遊', '閨蜜見證', '諮詢常見問答'];
 
   // 依主題綁定的療程排出「取用清單」:一般各 1 次;★ 加重(3 倍頻率)。同批不同篇輪替。
@@ -531,8 +554,33 @@ function PostPageInner() {
               </div>
             </div>
             <p className="rounded-xl bg-sand-50 px-3 py-2 text-[11px] leading-relaxed text-sand-500">
-              提示詞方向靈感:{DIRECTIONS.join('、')}。可插入變數:療程名＋價格、5,000 醫美券、逐句翻譯、自有醫師、曼谷順遊等(見各欄下方按鈕)。提示詞寫成「方向＋多個可選角度」最好,不要寫死固定開場/結尾,系列才不會每篇都一樣。
+              提示詞方向靈感:{DIRECTIONS.join('、')}。提示詞寫成「方向＋多個可選角度」最好,不要寫死固定開場/結尾,系列才不會每篇都一樣。
             </p>
+            {/* 可插入的「特色」:可刪除/新增,存雲端。寫的時候要把前提講完整(例如醫美券限二日套餐) */}
+            <div className="rounded-xl border border-sand-200 bg-sand-50 p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-medium text-sand-700">可插入的特色</span>
+                {varsMsg && <span className="text-[11px] text-down">{varsMsg}</span>}
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {insertVars.map((v) => (
+                  <span key={v} className="flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[11px] text-brand-700">
+                    {v}
+                    <button type="button" title="刪除這個特色" onClick={() => saveInsertVars(insertVars.filter((x) => x !== v))} className="text-sand-400 hover:text-red-600">✕</button>
+                  </span>
+                ))}
+                <input
+                  value={newVar}
+                  onChange={(e) => setNewVar(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && newVar.trim() && !insertVars.includes(newVar.trim())) { saveInsertVars([...insertVars, newVar.trim()]); setNewVar(''); } }}
+                  placeholder="新增特色,按 Enter"
+                  className="w-44 rounded-lg border border-sand-200 bg-white px-2 py-0.5 text-[11px]"
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-sand-400">
+                這些是提示詞下方「＋」按鈕的選項,用不到就刪掉。寫的時候要把前提講完整——例如醫美券只有「變美旅遊二日套餐」才有,不能寫成人人都送。產文時系統也會再擋一次沒前提的講法。
+              </p>
+            </div>
             {topics.length === 0 && <p className="text-xs text-sand-400">還沒有主題,用上方「AI 推薦」或「手動新增主題」建立。</p>}
             <div className="space-y-2">
               {topics.map((t) => {

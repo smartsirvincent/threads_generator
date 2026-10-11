@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { callJSON } from '@/lib/llm.js';
 import { isMedical, clinicContextText } from '@/lib/verticals.js';
+import { COUPON_RULE } from '@/lib/copy-rules.js';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -52,7 +53,7 @@ const SUGGEST_SYSTEM_MEDICAL = `你是專精台灣醫美診所社群素材的文
     "標題 2 (角度不同,例如痛點問題式:鬆弛/暗沉/凹陷)",
     "標題 3 (角度不同,例如旅遊+變美的情境式)"
   ],
-  "subtitle": "副標 (≤20 字,補強療程效果、旅遊套餐或 5,000 醫美券)",
+  "subtitle": "副標 (≤20 字,補強療程效果或旅遊套餐;要提 5,000 醫美券必須寫成「套餐送 5,000 券」這種看得出前提的講法)",
   "copy_short": "短版圖中文案 (20-40 字,1-2 行,乾淨好讀,可帶療程重點或安心感)",
   "copy_long": "長版圖中文案 (60-100 字,適合文字重的廣告版型,把療程效果+診所信任感+CTA 帶到)",
   "copy": "完整貼文文案 (60-120 字,IG/FB 發文用,口語溫暖、不硬推銷,可含換行+hashtag)"
@@ -63,7 +64,8 @@ const SUGGEST_SYSTEM_MEDICAL = `你是專精台灣醫美診所社群素材的文
 - **醫療廣告合規**:不用「保證見效/永久/最便宜/第一/絕對」等誇大或絕對字眼;不承諾療效;講「自然、漸進、改善」而非「治好」
 - 標題要有差異化,3 個分別走不同角度 (膚況承諾 / 痛點 / 旅遊情境)
 - 標題不要超過 12 字 (圖片可讀性)
-- 可自然帶到:中文地陪與翻譯、費用透明、5,000 泰銖醫美券、曼谷旅遊順便變美
+- 可自然帶到:中文地陪與翻譯、費用透明、曼谷旅遊順便變美
+${COUPON_RULE}
 - **地陪/翻譯一律中性稱呼,不要寫性別**(不出現 男/女/先生/小姐/帥哥/美女/他/她)
 - **診所下午 1 點後才營業,不要寫上午/一早去做醫美**(要提時間寫下午或傍晚)
 - copy_short 放進圖裡要乾淨;copy_long 適合文字重的排版;copy 是圖外貼文`;
@@ -73,7 +75,7 @@ const SUGGEST_SYSTEM_MEDICAL_PROMO = `你是專精台灣醫美診所「促銷導
 **輸出 JSON 格式 (嚴格遵守)**:
 {
   "titles": [
-    "標題 1 (≤12 字,價格/優惠鉤子,例如帶數字或『5,000 券直接抵』)",
+    "標題 1 (≤12 字,價格/優惠鉤子,帶數字;若要提醫美券必須寫成『套餐送5,000券』,不可寫成『5,000券直接抵』)",
     "標題 2 (角度不同,名額/檔期急迫感,例如『首團只接兩組』)",
     "標題 3 (角度不同,行動導向,例如『私訊卡位』)"
   ],
@@ -86,7 +88,8 @@ const SUGGEST_SYSTEM_MEDICAL_PROMO = `你是專精台灣醫美診所「促銷導
 規則:
 - 有促銷力道、有急迫感,但**口吻仍溫暖真誠、不油、不硬凹**(這個品牌反感話術)
 - **醫療廣告合規**:不用「保證見效/永久/最便宜/第一/絕對」等誇大或絕對字眼;不承諾療效
-- 善用真實賣點催單:每人 5,000 泰銖醫美券「直接抵、不限療程、不需湊額度」、二日套餐價(2-3 人 8,399/人起、4-9 人 6,299/人起)、名額限制、中文全程陪同
+- 善用真實賣點催單:二日套餐價(2-3 人 8,399/人起、4-9 人 6,299/人起)、名額限制、中文全程陪同
+${COUPON_RULE}
 - 標題要有差異化,3 個分別走不同角度 (價格 / 名額急迫 / 行動)
 - 標題不要超過 12 字;CTA 明確 (私訊 / LINE / 卡位)
 - **地陪/翻譯一律中性稱呼,不寫性別**(不出現 男/女/帥哥/美女/他/她);**診所下午 1 點後才營業,不要寫上午/一早去做醫美**`;
@@ -207,9 +210,9 @@ export async function POST(req) {
 
     if (dry_run) {
       return NextResponse.json(medical ? (promo ? {
-        titles: [`${product.name} 限時價`, `首團只接兩組`, `5,000 券直接抵`],
+        titles: [`${product.name} 限時價`, `首團只接兩組`, `套餐送5,000券`],
         subtitle: `[Dry-run] 2-3 人 8,399/人起`,
-        copy_short: `[Dry-run short] ${product.name}，每人 5,000 券直接抵`,
+        copy_short: `[Dry-run short] ${product.name}，二日套餐每人送 5,000 券`,
         copy_long: `[Dry-run long] ${product.name}，名額有限、私訊卡位；中文全程陪同、費用透明`,
         copy: `[Dry-run promo] ${brand || ''} 導購文案。\n\n#醫美 #曼谷 #限時`,
         composition_prompt: compositionRefUrl ? 'Dry-run composition: bold promo beauty layout.' : '',
@@ -219,7 +222,7 @@ export async function POST(req) {
         titles: [`${product.name} 的自然感`, `還在為鬆弛煩惱？`, `曼谷旅遊順便變美`],
         subtitle: `[Dry-run] ${product.features?.slice(0, 30) || ''}`,
         copy_short: `[Dry-run short] ${product.name}，自然、安心`,
-        copy_long: `[Dry-run long] ${product.name}，中文全程陪同、費用透明，每人 5,000 醫美券直接抵`,
+        copy_long: `[Dry-run long] ${product.name}，中文全程陪同、費用透明，參加二日套餐每人送 5,000 醫美券`,
         copy: `[Dry-run] 完整文案，${brand || ''} 風格。\n\n#醫美 #曼谷`,
         composition_prompt: compositionRefUrl ? 'Dry-run composition: soft beauty close-up, natural window light.' : '',
         has_person: true,
